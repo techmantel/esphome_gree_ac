@@ -47,6 +47,22 @@ namespace protocol {
     static const uint8_t REPORT_PWR_BYTE       = 4;
     static const uint8_t REPORT_PWR_MASK       = 0b10000000;
 
+    static const uint8_t REPORT_SHORT_DATA_LEN = 33;
+    static const uint8_t REPORT_SHORT_PWR_BYTE = 15;
+    static const uint8_t REPORT_SHORT_PWR_MASK = 0b00000010;
+    static const uint8_t REPORT_SHORT_MODE_BYTE = 2;
+    static const uint8_t REPORT_SHORT_MODE_COOL = 1;
+    static const uint8_t REPORT_SHORT_MODE_DRY  = 2;
+    static const uint8_t REPORT_SHORT_MODE_FAN  = 4;
+    static const uint8_t REPORT_SHORT_MODE_HEAT = 8;
+    static const uint8_t REPORT_SHORT_FAN_SPD1_BYTE = 3;
+    static const uint8_t REPORT_SHORT_TEMP_SET_LO_BYTE = 6;
+    static const uint8_t REPORT_SHORT_TEMP_SET_HI_BYTE = 7;
+    static const uint8_t REPORT_SHORT_TEMP_ACT_BYTE = 16;
+    static const uint8_t REPORT_SHORT_TEMP_ACT_OFF = 4;
+    static const uint8_t REPORT_SHORT_HSWING_BYTE = 4;
+    static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
+
     static const uint8_t REPORT_MODE_BYTE      = 6;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;
     static const uint8_t REPORT_MODE_POS       = 4;
@@ -207,11 +223,11 @@ class SinclairACCNT : public SinclairAC {
         ACState state_ = ACState::Initializing; /* Stores if the AC is responsive or not */
         ACUpdate update_ = ACUpdate::NoUpdate;  /* Stores if we need tu send update to AC or no */
 
-        climate::ClimateMode mode_internal_;
-        bool power_internal_;
+        climate::ClimateMode mode_internal_ = climate::CLIMATE_MODE_OFF;
+        bool power_internal_ = false;
 
         std::string display_mode_internal_;
-        bool display_power_internal_;
+        bool display_power_internal_ = false;
 
         bool processUnitReport();
 
@@ -237,6 +253,8 @@ class SinclairACCNT : public SinclairAC {
         bool parse_hex_packet_(const std::string &hex_input, std::vector<uint8_t> *packet);
         bool apply_debug_control_();
 
+        bool is_short_report_();
+        bool determine_power();
         climate::ClimateMode determine_mode();
         const char* determine_fan_mode();
 

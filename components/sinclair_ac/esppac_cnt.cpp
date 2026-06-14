@@ -86,13 +86,18 @@ static const char DEBUG_UI_HTML[] = R"HTML(
             <div id="protocol_config" style="display:none">
                 <div class="row">
                     <label class="cfg-label" data-field="pwr_byte">PWR_BYTE <input id="pwr_byte" type="number" value="4" style="width:60px"></label>
-                    <label class="cfg-label" data-field="mode_byte">MODE_BYTE <input id="mode_byte" type="number" value="4" style="width:60px"></label>
-                    <label class="cfg-label" data-field="temp_set_lo_byte">TEMP_SET_LO_BYTE <input id="temp_set_lo_byte" type="number" value="5" style="width:60px"></label>
-                    <label class="cfg-label" data-field="temp_set_hi_byte">TEMP_SET_HI_BYTE <input id="temp_set_hi_byte" type="number" value="6" style="width:60px"></label>
-                    <label class="cfg-label" data-field="temp_act_byte">TEMP_ACT_BYTE <input id="temp_act_byte" type="number" value="42" style="width:60px"></label>
+                    <label class="cfg-label" data-field="mode_byte">MODE_BYTE <input id="mode_byte" type="number" value="6" style="width:60px"></label>
+                    <label class="cfg-label" data-field="temp_set_lo_byte">TEMP_SET_LO_BYTE <input id="temp_set_lo_byte" type="number" value="10" style="width:60px"></label>
+                    <label class="cfg-label" data-field="temp_set_hi_byte">TEMP_SET_HI_BYTE <input id="temp_set_hi_byte" type="number" value="11" style="width:60px"></label>
+                    <label class="cfg-label" data-field="temp_act_byte">TEMP_ACT_BYTE <input id="temp_act_byte" type="number" value="20" style="width:60px"></label>
                     <label class="cfg-label" data-field="fan_spd1_byte">FAN_SPD1_BYTE <input id="fan_spd1_byte" type="number" value="7" style="width:60px"></label>
+                    <label class="cfg-label" data-field="fan_spd2_byte">FAN_SPD2_BYTE <input id="fan_spd2_byte" type="number" value="4" style="width:60px"></label>
                     <label class="cfg-label" data-field="hswing_byte">HSWING_BYTE <input id="hswing_byte" type="number" value="8" style="width:60px"></label>
-                    <label class="cfg-label" data-field="vswing_byte">VSWING_BYTE <input id="vswing_byte" type="number" value="8" style="width:60px"></label>
+                    <label class="cfg-label" data-field="vswing_byte">VSWING_BYTE <input id="vswing_byte" type="number" value="9" style="width:60px"></label>
+                    <label class="cfg-label" data-field="temp_set_byte">TEMP_SET_BYTE <input id="temp_set_byte" type="number" value="10" style="width:60px"></label>
+                    <label class="cfg-label" data-field="disp_on_byte">DISP_ON_BYTE <input id="disp_on_byte" type="number" value="6" style="width:60px"></label>
+                    <label class="cfg-label" data-field="disp_mode_byte">DISP_MODE_BYTE <input id="disp_mode_byte" type="number" value="9" style="width:60px"></label>
+                    <label class="cfg-label" data-field="disp_f_byte">DISP_F_BYTE <input id="disp_f_byte" type="number" value="7" style="width:60px"></label>
                     <button onclick="saveProtocolConfig()">Save Config</button>
                     <button onclick="resetProtocolConfig()">Reset to Default</button>
                 </div>
@@ -109,10 +114,12 @@ function q(id){return document.getElementById(id)}
 function b(v){return v?1:0}
 function s(v){return v===null||v===undefined?"":String(v)}
 
-const protocolConfig={
-    pwr_byte:4,mode_byte:4,temp_set_lo_byte:5,temp_set_hi_byte:6,temp_act_byte:42,
-    fan_spd1_byte:7,hswing_byte:8,vswing_byte:8
+const defaultProtocolConfig={
+    pwr_byte:4,mode_byte:6,temp_set_lo_byte:10,temp_set_hi_byte:11,temp_act_byte:20,
+    fan_spd1_byte:7,hswing_byte:8,vswing_byte:9,temp_set_byte:10,fan_spd2_byte:4,
+    disp_on_byte:6,disp_mode_byte:9,disp_f_byte:7
 };
+const protocolConfig=Object.assign({},defaultProtocolConfig);
 
 const protocolFieldColors={
     pwr_byte:'#ef4444',
@@ -121,8 +128,13 @@ const protocolFieldColors={
     temp_set_hi_byte:'#34d399',
     temp_act_byte:'#14b8a6',
     fan_spd1_byte:'#3b82f6',
+    fan_spd2_byte:'#60a5fa',
     hswing_byte:'#8b5cf6',
-    vswing_byte:'#ec4899'
+    vswing_byte:'#ec4899',
+    temp_set_byte:'#22c55e',
+    disp_on_byte:'#f97316',
+    disp_mode_byte:'#fb923c',
+    disp_f_byte:'#facc15'
 };
 
 function hexToRgba(hex,alpha){
@@ -197,10 +209,7 @@ function saveProtocolConfig(){
 }
 
 function resetProtocolConfig(){
-    Object.assign(protocolConfig,{
-        pwr_byte:4,mode_byte:4,temp_set_lo_byte:5,temp_set_hi_byte:6,temp_act_byte:42,
-        fan_spd1_byte:7,hswing_byte:8,vswing_byte:8
-    });
+    Object.assign(protocolConfig,defaultProtocolConfig);
     localStorage.removeItem('protocolConfig');
     updateProtocolConfigUI();
     refresh();
@@ -245,14 +254,15 @@ function decodePacket(packet){
         }
         const minLen=Math.max(protocolConfig.pwr_byte,protocolConfig.mode_byte,protocolConfig.temp_set_lo_byte,protocolConfig.temp_set_hi_byte,protocolConfig.fan_spd1_byte,protocolConfig.hswing_byte,protocolConfig.vswing_byte)+1;
         if(cmd!==0x31||bytes.length<minLen) return `[RX] Pkt(${cmd.toString(16).toUpperCase()})`;
-        const pwr=(bytes[protocolConfig.pwr_byte]&0x80)!==0;
-        const mode=(bytes[protocolConfig.mode_byte]&0x70)>>4;
-        const modeMap={1:'cool',2:'dry',3:'fan',4:'heat'};
+        const shortReport=cmd===0x31&&bytes.length===38;
+        const pwr=shortReport?(bytes[19]&0x02)!==0:(bytes[protocolConfig.pwr_byte]&0x80)!==0;
+        const mode=shortReport?bytes[protocolConfig.mode_byte]:(bytes[protocolConfig.mode_byte]&0x70)>>4;
+        const modeMap=shortReport?{1:'cool',2:'dry',4:'fan',8:'heat'}:{1:'cool',2:'dry',3:'fan',4:'heat'};
         const tempSetRaw=bytes[protocolConfig.temp_set_lo_byte]+(bytes[protocolConfig.temp_set_hi_byte]<<8);
         const tempSet=16+((tempSetRaw-0x00A0)/10);
         let tempStr=tempSet.toFixed(1);
         if(bytes.length>protocolConfig.temp_act_byte){
-            const tempAct=(bytes[protocolConfig.temp_act_byte]-16)/2;
+            const tempAct=shortReport?bytes[protocolConfig.temp_act_byte]+4:(bytes[protocolConfig.temp_act_byte]-16)/2;
             tempStr+=`/${tempAct.toFixed(1)}`;
         }
         const fanSpd=bytes[protocolConfig.fan_spd1_byte]&0x07;
@@ -261,7 +271,8 @@ function decodePacket(packet){
         const hswingNames=['off','full','left','midl','mid','midr','right'];
         const vswing=(bytes[protocolConfig.vswing_byte]&0xf0)>>4;
         const vswingNames=['off','full','cup','cmidu','cmid','cmidd','cdown','down','midd','mid','midu','up'];
-        return `[RX] pwr=${pwr?'ON':'OFF'} mode=${modeMap[mode]||'keep'} temp=${tempStr} fan=${fanMap[fanSpd]||`unk(${fanSpd})`} hswing=${hswingNames[hswing]||hswing} vswing=${vswingNames[vswing]||vswing}`;
+        const pwrSource=shortReport?` raw19=0x${bytes[19].toString(16).toUpperCase().padStart(2,'0')}`:'';
+        return `[RX] pwr=${pwr?'ON':'OFF'}${pwrSource} mode=${modeMap[mode]||'keep'} temp=${tempStr} fan=${fanMap[fanSpd]||`unk(${fanSpd})`} hswing=${hswingNames[hswing]||hswing} vswing=${vswingNames[vswing]||vswing}`;
     }catch(e){
         return `(err:${e.message})`;
     }
@@ -497,6 +508,7 @@ std::string SinclairACCNT::json_status_()
     out += "\"ready\":" + std::string(this->state_ == ACState::Ready ? "true" : "false");
     out += ",\"state\":\"" + std::string(state) + "\"";
     out += ",\"update\":\"" + std::string(update) + "\"";
+    out += ",\"power\":" + std::string(this->power_internal_ ? "true" : "false");
     out += ",\"mode\":\"" + mode + "\"";
     out += ",\"fan\":\"" + this->json_escape_(fan) + "\"";
     out += ",\"target_temperature\":";
@@ -1390,8 +1402,17 @@ bool SinclairACCNT::processUnitReport()
     }
     this->set_custom_fan_mode_(newFanMode);
     
-    uint16_t newTargetTemperatureRaw = this->serialProcess_.data[protocol::REPORT_TEMP_SET_LO_BYTE]
-        + ((this->serialProcess_.data[protocol::REPORT_TEMP_SET_HI_BYTE] & protocol::REPORT_TEMP_SET_HI_MASK) << 8);
+    uint16_t newTargetTemperatureRaw;
+    if (this->is_short_report_())
+    {
+        newTargetTemperatureRaw = this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE]
+            + ((this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] & protocol::REPORT_TEMP_SET_HI_MASK) << 8);
+    }
+    else
+    {
+        newTargetTemperatureRaw = this->serialProcess_.data[protocol::REPORT_TEMP_SET_LO_BYTE]
+            + ((this->serialProcess_.data[protocol::REPORT_TEMP_SET_HI_BYTE] & protocol::REPORT_TEMP_SET_HI_MASK) << 8);
+    }
     float newTargetTemperature = protocol::REPORT_TEMP_SET_C_BASE
         + static_cast<float>(newTargetTemperatureRaw - protocol::REPORT_TEMP_SET_RAW_BASE) / protocol::REPORT_TEMP_SET_RAW_STEP;
     if (this->target_temperature != newTargetTemperature) hasChanged = true;
@@ -1400,8 +1421,17 @@ bool SinclairACCNT::processUnitReport()
     /* if there is no external sensor mapped to represent current temperature we will get data from AC unit */
     if (this->current_temperature_sensor_ == nullptr)
     {
-        float newCurrentTemperature = (float)(((this->serialProcess_.data[protocol::REPORT_TEMP_ACT_BYTE] & protocol::REPORT_TEMP_ACT_MASK) >> protocol::REPORT_TEMP_ACT_POS)
-            - protocol::REPORT_TEMP_ACT_OFF) / protocol::REPORT_TEMP_ACT_DIV;
+        float newCurrentTemperature;
+        if (this->is_short_report_())
+        {
+            newCurrentTemperature = static_cast<float>(this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_ACT_BYTE]
+                + protocol::REPORT_SHORT_TEMP_ACT_OFF);
+        }
+        else
+        {
+            newCurrentTemperature = (float)(((this->serialProcess_.data[protocol::REPORT_TEMP_ACT_BYTE] & protocol::REPORT_TEMP_ACT_MASK) >> protocol::REPORT_TEMP_ACT_POS)
+                - protocol::REPORT_TEMP_ACT_OFF) / protocol::REPORT_TEMP_ACT_DIV;
+        }
         if (this->current_temperature != newCurrentTemperature) hasChanged = true;
         this->update_current_temperature(newCurrentTemperature);
     }
@@ -1438,17 +1468,65 @@ bool SinclairACCNT::processUnitReport()
     return hasChanged;
 }
 
+bool SinclairACCNT::is_short_report_()
+{
+    return this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN;
+}
+
+bool SinclairACCNT::determine_power()
+{
+    if (this->is_short_report_())
+    {
+        return (this->serialProcess_.data[protocol::REPORT_SHORT_PWR_BYTE] & protocol::REPORT_SHORT_PWR_MASK) != 0;
+    }
+
+    return (this->serialProcess_.data[protocol::REPORT_PWR_BYTE] & protocol::REPORT_PWR_MASK) != 0;
+}
+
 climate::ClimateMode SinclairACCNT::determine_mode()
 {
-    uint8_t mode = (this->serialProcess_.data[protocol::REPORT_MODE_BYTE] & protocol::REPORT_MODE_MASK) >> protocol::REPORT_MODE_POS;
+    uint8_t mode;
+    if (this->is_short_report_())
+    {
+        mode = this->serialProcess_.data[protocol::REPORT_SHORT_MODE_BYTE];
+    }
+    else
+    {
+        mode = (this->serialProcess_.data[protocol::REPORT_MODE_BYTE] & protocol::REPORT_MODE_MASK) >> protocol::REPORT_MODE_POS;
+    }
 
     /* as mode presented by climate component incorporates both power and mode we will store this separately for Sinclair
        in _internal_ fields */
     /* check unit power flag */
-    this->power_internal_ = (this->serialProcess_.data[protocol::REPORT_PWR_BYTE] & protocol::REPORT_PWR_MASK) != 0;
+    this->power_internal_ = this->determine_power();
 
     /* check unit mode */
-    switch (mode)
+    if (this->is_short_report_())
+    {
+        switch (mode)
+        {
+            case protocol::REPORT_SHORT_MODE_COOL:
+                this->mode_internal_ = climate::CLIMATE_MODE_COOL;
+                break;
+            case protocol::REPORT_SHORT_MODE_DRY:
+                this->mode_internal_ = climate::CLIMATE_MODE_DRY;
+                break;
+            case protocol::REPORT_SHORT_MODE_FAN:
+                this->mode_internal_ = climate::CLIMATE_MODE_FAN_ONLY;
+                break;
+            case protocol::REPORT_SHORT_MODE_HEAT:
+                this->mode_internal_ = climate::CLIMATE_MODE_HEAT;
+                break;
+            default:
+                ESP_LOGW(TAG, "Received unknown short-report climate mode");
+                if (this->mode_internal_ == climate::CLIMATE_MODE_OFF || this->mode_internal_ == climate::CLIMATE_MODE_HEAT_COOL)
+                {
+                    this->mode_internal_ = climate::CLIMATE_MODE_COOL;
+                }
+                break;
+        }
+    }
+    else switch (mode)
     {
         case protocol::REPORT_MODE_COOL:
             this->mode_internal_ = climate::CLIMATE_MODE_COOL;
@@ -1492,10 +1570,24 @@ climate::ClimateMode SinclairACCNT::determine_mode()
 const char* SinclairACCNT::determine_fan_mode()
 {
     /* fan setting has quite complex representation in the packet, brace for it */
-    uint8_t fanSpeed1 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD1_BYTE]  & protocol::REPORT_FAN_SPD1_MASK) >> protocol::REPORT_FAN_SPD1_POS;
-    uint8_t fanSpeed2 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD2_BYTE]  & protocol::REPORT_FAN_SPD2_MASK) >> protocol::REPORT_FAN_SPD2_POS;
-    bool    fanQuiet  = (this->serialProcess_.data[protocol::REPORT_FAN_QUIET_BYTE] & protocol::REPORT_FAN_QUIET_MASK) != 0;
-    bool    fanTurbo  = (this->serialProcess_.data[protocol::REPORT_FAN_TURBO_BYTE] & protocol::REPORT_FAN_TURBO_MASK) != 0;
+    uint8_t fanSpeed1;
+    uint8_t fanSpeed2;
+    bool fanQuiet;
+    bool fanTurbo;
+    if (this->is_short_report_())
+    {
+        fanSpeed1 = (this->serialProcess_.data[protocol::REPORT_SHORT_FAN_SPD1_BYTE] & protocol::REPORT_FAN_SPD1_MASK) >> protocol::REPORT_FAN_SPD1_POS;
+        fanSpeed2 = 0;
+        fanQuiet = false;
+        fanTurbo = false;
+    }
+    else
+    {
+        fanSpeed1 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD1_BYTE]  & protocol::REPORT_FAN_SPD1_MASK) >> protocol::REPORT_FAN_SPD1_POS;
+        fanSpeed2 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD2_BYTE]  & protocol::REPORT_FAN_SPD2_MASK) >> protocol::REPORT_FAN_SPD2_POS;
+        fanQuiet  = (this->serialProcess_.data[protocol::REPORT_FAN_QUIET_BYTE] & protocol::REPORT_FAN_QUIET_MASK) != 0;
+        fanTurbo  = (this->serialProcess_.data[protocol::REPORT_FAN_TURBO_BYTE] & protocol::REPORT_FAN_TURBO_MASK) != 0;
+    }
     (void) fanSpeed2;
     (void) fanQuiet;
     (void) fanTurbo;
@@ -1529,7 +1621,15 @@ const char* SinclairACCNT::determine_fan_mode()
 
 std::string SinclairACCNT::determine_vertical_swing()
 {
-    uint8_t mode = (this->serialProcess_.data[protocol::REPORT_VSWING_BYTE]  & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
+    uint8_t mode;
+    if (this->is_short_report_())
+    {
+        mode = (this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
+    }
+    else
+    {
+        mode = (this->serialProcess_.data[protocol::REPORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
+    }
 
     switch (mode) {
         case protocol::REPORT_VSWING_OFF:
@@ -1564,7 +1664,15 @@ std::string SinclairACCNT::determine_vertical_swing()
 
 std::string SinclairACCNT::determine_horizontal_swing()
 {
-    uint8_t mode = (this->serialProcess_.data[protocol::REPORT_HSWING_BYTE]  & protocol::REPORT_HSWING_MASK) >> protocol::REPORT_HSWING_POS;
+    uint8_t mode;
+    if (this->is_short_report_())
+    {
+        mode = (this->serialProcess_.data[protocol::REPORT_SHORT_HSWING_BYTE] & protocol::REPORT_HSWING_MASK) >> protocol::REPORT_HSWING_POS;
+    }
+    else
+    {
+        mode = (this->serialProcess_.data[protocol::REPORT_HSWING_BYTE] & protocol::REPORT_HSWING_MASK) >> protocol::REPORT_HSWING_POS;
+    }
 
     switch (mode) {
         case protocol::REPORT_HSWING_OFF:
