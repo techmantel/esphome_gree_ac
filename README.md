@@ -41,6 +41,48 @@ On some stock WiFi PCBs AC unit connector pins are marked on silkscreen.
 **NOTES**
 * It was reported [#1](https://github.com/piotrva/esphome_gree_ac/issues/1) that with some changes the code works with Lennox li024ci AC
 
+## Built-in Debug Web UI (ESP-01)
+
+You can enable a lightweight on-device debug UI from the `sinclair_ac` climate config:
+
+```yaml
+climate:
+	- platform: sinclair_ac
+		name: Kitchen
+		debug_ui: true
+		debug_ui_port: 8080
+```
+
+Then open `http://<device-ip>:8080/`.
+
+For ESP-01/ESP8266 debugging, keep the custom debug UI enabled and remove `captive_portal:` from your YAML to avoid HTTP server conflicts.
+
+Network access:
+- If the device joins your normal Wi-Fi, open the debug UI at `http://<device-ip>:8080/`.
+- If normal Wi-Fi fails and the fallback AP starts, connect to that hotspot and open `http://192.168.4.1:8080/`.
+
+The setup lives in your YAML:
+- `wifi.ssid` / `wifi.password` control the normal Wi-Fi connection.
+- `wifi.ap.ssid` / `wifi.ap.password` control the fallback hotspot.
+- `climate.debug_ui` and `climate.debug_ui_port` control the custom debug UI.
+
+What it provides:
+- Live status (ready/init, mode, fan, temperatures, tx/rx ages)
+- Recent RX/TX packet history (ring buffer)
+- Structured control form (mode/temp/fan/swing/display/switches)
+- Raw packet send form (manual protocol testing)
+
+HTTP endpoints:
+- `GET /api/status`
+- `GET /api/packets`
+- `POST /api/control`
+- `POST /api/raw`
+
+Notes:
+- Intended for local debugging. There is no auth in v1.
+- Raw packet send is rate limited to the protocol refresh period.
+- Structured control queues packet generation through the existing protocol flow.
+
 **TODO**
 * Support Timers - maybe unnecessray as timers can be managed by Home Assistant
 * Support Time sync - maybe unnecessray as timers can be managed by Home Assistant

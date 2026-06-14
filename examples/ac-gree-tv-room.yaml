@@ -1,0 +1,68 @@
+substitutions:
+  devicename: "Gree AC TV Room"
+
+esphome:
+  name: gree-ac-tv-room
+  friendly_name: ${devicename}
+
+# Enable Home Assistant native API (port 6053)
+api:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+  baud_rate: 0 # disable LOG output on UART as UART is used for Sinclair AC unit
+  level: VERBOSE
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2
+
+  # Fallback hotspot — if normal Wi-Fi fails, debug UI is available at:
+  #   http://192.168.4.1:8080/
+  ap:
+    ssid: ${devicename} Fallback
+    password: !secret wifi_ap_passwd
+
+uart:
+  tx_pin: 1
+  rx_pin: 3
+  baud_rate: 4800
+  parity: EVEN
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [sinclair_ac]
+
+climate:
+  - platform: sinclair_ac
+    name: ${devicename}
+    # Debug UI served by the AC component on port 8080.
+    # Open http://<device-ip>:8080/ in a browser to inspect raw packets.
+    debug_ui: true
+    debug_ui_port: 8080
+    horizontal_swing_select:
+      name: ${devicename} Horizontal Swing Mode
+    vertical_swing_select:
+      name: ${devicename} Vertical Swing Mode
+    display_select:
+      name: ${devicename} Display Mode
+    display_unit_select:
+      name: ${devicename} Display Unit
+    plasma_switch:
+      name: ${devicename} Plasma
+    sleep_switch:
+      name: ${devicename} Sleep
+    xfan_switch:
+      name: ${devicename} X-fan
+    save_switch:
+      name: ${devicename} Save|8 Heat

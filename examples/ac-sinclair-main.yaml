@@ -36,6 +36,9 @@ external_components:
 climate:
   - platform: sinclair_ac
     name: ${devicename}
+    # Custom protocol debug UI served by the AC component itself.
+    debug_ui: true
+    debug_ui_port: 8080
     horizontal_swing_select:
       name: ${devicename} Horizontal Swing Mode
     vertical_swing_select:
@@ -54,13 +57,15 @@ climate:
       name: ${devicename} Save|8 Heat
 
 wifi:
+  # Normal Wi-Fi connection. When this connects, open the debug UI at:
+  #   http://<device-ip>:8080/
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  # Fallback hotspot. If normal Wi-Fi fails, the ESP starts this AP instead.
+  # Then open the debug UI at:
+  #   http://192.168.4.1:8080/
   ap:
     ssid: ${devicename} Fallback Hotspot
     password: !secret wifi_ap_passwd
-
-captive_portal:
     

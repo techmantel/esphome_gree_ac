@@ -6,6 +6,7 @@ from esphome.const import (
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart, climate, sensor, select, switch
+from esphome.core import CORE
 
 AUTO_LOAD = ["switch", "sensor", "select"]
 DEPENDENCIES = ["uart"]
@@ -36,6 +37,8 @@ CONF_XFAN_SWITCH                = "xfan_switch"
 CONF_SAVE_SWITCH                = "save_switch"
 
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
+CONF_DEBUG_UI_ENABLED           = "debug_ui"
+CONF_DEBUG_UI_PORT              = "debug_ui_port"
 
 HORIZONTAL_SWING_OPTIONS = [
     "0 - OFF",
@@ -101,16 +104,25 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(SinclairACCNT),
             cv.Optional(CONF_CURRENT_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
+            cv.Optional(CONF_DEBUG_UI_ENABLED, default=False): cv.boolean,
+            cv.Optional(CONF_DEBUG_UI_PORT, default=8080): cv.port,
         }
     ),
 )
 
 
 async def to_code(config):
+    if CORE.is_esp8266:
+        cg.add_library("ESP8266WebServer", None)
+
     var = cg.new_Pvariable(config[CONF_ID])
     await climate.register_climate(var, config)
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
+    if CONF_DEBUG_UI_ENABLED in config:
+        cg.add(var.set_debug_ui_enabled(config[CONF_DEBUG_UI_ENABLED]))
+    if CONF_DEBUG_UI_PORT in config:
+        cg.add(var.set_debug_ui_port(config[CONF_DEBUG_UI_PORT]))
 
     if CONF_HORIZONTAL_SWING_SELECT in config:
         conf = config[CONF_HORIZONTAL_SWING_SELECT]

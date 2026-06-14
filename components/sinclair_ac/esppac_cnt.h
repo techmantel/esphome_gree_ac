@@ -2,6 +2,18 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/climate/climate_mode.h"
 #include "esppac.h"
+#include <array>
+
+#if defined(USE_ESP8266)
+class WiFiServer;
+namespace esp8266webserver {
+template<typename ServerType>
+class ESP8266WebServerTemplate;
+}
+using ESP8266WebServer = esp8266webserver::ESP8266WebServerTemplate<WiFiServer>;
+#elif defined(USE_ESP32)
+class WebServer;
+#endif
 
 namespace esphome {
 namespace sinclair_ac {
@@ -35,7 +47,7 @@ namespace protocol {
     static const uint8_t REPORT_PWR_BYTE       = 4;
     static const uint8_t REPORT_PWR_MASK       = 0b10000000;
 
-    static const uint8_t REPORT_MODE_BYTE      = 4;
+    static const uint8_t REPORT_MODE_BYTE      = 6;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;
     static const uint8_t REPORT_MODE_POS       = 4;
     static const uint8_t REPORT_MODE_AUTO          = 0;
@@ -44,8 +56,8 @@ namespace protocol {
     static const uint8_t REPORT_MODE_FAN           = 3;
     static const uint8_t REPORT_MODE_HEAT          = 4;
 
-    static const uint8_t REPORT_FAN_SPD1_BYTE  = 18;
-    static const uint8_t REPORT_FAN_SPD1_MASK  = 0b00001111;
+    static const uint8_t REPORT_FAN_SPD1_BYTE  = 7;
+    static const uint8_t REPORT_FAN_SPD1_MASK  = 0b00000111;
     static const uint8_t REPORT_FAN_SPD1_POS   = 0;
     static const uint8_t REPORT_FAN_SPD2_BYTE  = 4;
     static const uint8_t REPORT_FAN_SPD2_MASK  = 0b00000011;
@@ -55,12 +67,14 @@ namespace protocol {
     static const uint8_t REPORT_FAN_TURBO_BYTE = 6;
     static const uint8_t REPORT_FAN_TURBO_MASK = 0b00000001;
 
-    static const uint8_t REPORT_TEMP_SET_BYTE  = 5;
-    static const uint8_t REPORT_TEMP_SET_MASK  = 0b11110000;
-    static const uint8_t REPORT_TEMP_SET_POS   = 4;
-    static const uint8_t REPORT_TEMP_SET_OFF   = 16; /* temperature offset from value in packet */
+    static const uint8_t REPORT_TEMP_SET_LO_BYTE   = 10;
+    static const uint8_t REPORT_TEMP_SET_HI_BYTE   = 11;
+    static const uint8_t REPORT_TEMP_SET_HI_MASK   = 0b00000001;
+    static const uint16_t REPORT_TEMP_SET_RAW_BASE = 0x00A0;
+    static const uint8_t REPORT_TEMP_SET_C_BASE    = 16; /* celsius represented by RAW_BASE */
+    static const uint8_t REPORT_TEMP_SET_RAW_STEP  = 10; /* raw units per 1C */
 
-    static const uint8_t REPORT_TEMP_ACT_BYTE  = 42;
+    static const uint8_t REPORT_TEMP_ACT_BYTE  = 19;
     static const uint8_t REPORT_TEMP_ACT_MASK  = 0b11111111;
     static const uint8_t REPORT_TEMP_ACT_POS   = 0;
     static const uint8_t REPORT_TEMP_ACT_OFF   = 16;  /* temperature offset from value in packet */
@@ -77,7 +91,7 @@ namespace protocol {
     static const uint8_t REPORT_HSWING_CMIDR       = 5;
     static const uint8_t REPORT_HSWING_CRIGHT      = 6;
 
-    static const uint8_t REPORT_VSWING_BYTE    = 8;
+    static const uint8_t REPORT_VSWING_BYTE    = 9;
     static const uint8_t REPORT_VSWING_MASK    = 0b11110000;
     static const uint8_t REPORT_VSWING_POS     = 4;
     static const uint8_t REPORT_VSWING_OFF         = 0;
@@ -145,6 +159,8 @@ const std::vector<uint8_t> allowedPackets = {protocol::CMD_IN_UNIT_REPORT};
 
 class SinclairACCNT : public SinclairAC {
     public:
+        SinclairACCNT();
+
         void control(const climate::ClimateCall &call) override;
 
         void on_horizontal_swing_change(const std::string &swing) override;
@@ -161,7 +177,33 @@ class SinclairACCNT : public SinclairAC {
         void setup() override;
         void loop() override;
 
+        void set_debug_ui_enabled(bool enabled) { this->debug_ui_enabled_ = enabled; }
+        void set_debug_ui_port(uint16_t port) { this->debug_ui_port_ = port; }
+
     protected:
+        struct DebugPacket {
+            uint32_t timestamp_ms;
+            bool outgoing;
+            uint8_t len;
+            std::array<uint8_t, DATA_MAX> bytes;
+        };
+
+        static const uint8_t DEBUG_PACKET_HISTORY_SIZE = 12;
+
+        uint32_t last_debug_raw_sent_ = 0;
+        bool debug_ui_enabled_ = false;
+        uint16_t debug_ui_port_ = 8080;
+        bool debug_ui_ready_ = false;
+        std::array<DebugPacket, DEBUG_PACKET_HISTORY_SIZE> debug_packets_;
+        uint8_t debug_packet_head_ = 0;
+        uint8_t debug_packet_count_ = 0;
+
+    #if defined(USE_ESP8266)
+        ESP8266WebServer *debug_server_ = nullptr;
+    #elif defined(USE_ESP32)
+        WebServer *debug_server_ = nullptr;
+    #endif
+
         ACState state_ = ACState::Initializing; /* Stores if the AC is responsive or not */
         ACUpdate update_ = ACUpdate::NoUpdate;  /* Stores if we need tu send update to AC or no */
 
@@ -177,6 +219,23 @@ class SinclairACCNT : public SinclairAC {
 
         bool verify_packet();
         void handle_packet();
+
+        void init_debug_server_();
+        void handle_debug_server_();
+        void record_debug_packet_(const std::vector<uint8_t> &packet, bool outgoing);
+
+        void handle_debug_root_();
+        void handle_debug_status_();
+        void handle_debug_packets_();
+        void handle_debug_raw_send_();
+        void handle_debug_control_();
+
+        std::string json_status_();
+        std::string json_packets_();
+        std::string json_escape_(const std::string &value);
+        std::string packet_to_hex_(const uint8_t *data, size_t len);
+        bool parse_hex_packet_(const std::string &hex_input, std::vector<uint8_t> *packet);
+        bool apply_debug_control_();
 
         climate::ClimateMode determine_mode();
         const char* determine_fan_mode();
