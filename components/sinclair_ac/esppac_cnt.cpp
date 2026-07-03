@@ -11,6 +11,7 @@
 #include <WebServer.h>
 #endif
 
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -56,8 +57,8 @@ static const char DEBUG_UI_HTML[] = R"HTML(
         <div class="card">
             <div class="row"><strong>Structured Control</strong></div>
             <div class="row">
-                <select id="power"><option value="">Power (keep)</option><option value="on">On</option><option value="off">Off</option></select>
-                <select id="mode"><option value="">Mode (keep)</option><option>auto</option><option>cool</option><option>heat</option><option>dry</option><option>fan_only</option></select>
+                <select id="power"><option value="">Power (keep)</option><option value="on">On (cool)</option><option value="off">Off</option></select>
+                <select id="mode"><option value="">Mode (keep)</option><option>cool</option><option>dry</option><option>fan_only</option></select>
                 <input id="temp" type="number" step="1" min="16" max="30" placeholder="Temp">
                 <select id="fan"><option value="">Fan (keep)</option><option>auto</option><option>low</option><option>med</option><option>high</option><option>turbo</option></select>
                 <button onclick="sendControl()">Queue Send</button>
@@ -521,13 +522,16 @@ std::string SinclairACCNT::json_status_()
     return out;
 }
 
-std::string SinclairACCNT::json_packets_()
+std::string SinclairACCNT::json_packets_(uint8_t max_packets)
 {
     const uint32_t now = millis();
     std::string out = "{\"packets\":[";
-    for (uint8_t i = 0; i < this->debug_packet_count_; i++)
+    const uint8_t packet_count = std::min(this->debug_packet_count_, max_packets);
+    out.reserve(16 + packet_count * 180);
+    for (uint8_t i = 0; i < packet_count; i++)
     {
-        const uint8_t idx = (this->debug_packet_head_ + DEBUG_PACKET_HISTORY_SIZE - this->debug_packet_count_ + i) % DEBUG_PACKET_HISTORY_SIZE;
+        App.feed_wdt();
+        const uint8_t idx = (this->debug_packet_head_ + DEBUG_PACKET_HISTORY_SIZE - packet_count + i) % DEBUG_PACKET_HISTORY_SIZE;
         const DebugPacket &entry = this->debug_packets_[idx];
         if (i > 0)
             out += ",";
@@ -556,7 +560,7 @@ bool SinclairACCNT::apply_debug_control_()
         }
         else if (value == "on" && this->mode == climate::CLIMATE_MODE_OFF)
         {
-            this->mode = climate::CLIMATE_MODE_AUTO;
+            this->mode = climate::CLIMATE_MODE_COOL;
             changed = true;
         }
     }
@@ -564,9 +568,7 @@ bool SinclairACCNT::apply_debug_control_()
     if (this->debug_server_->hasArg("mode"))
     {
         const auto value = this->debug_server_->arg("mode");
-        if (value == "auto") { this->mode = climate::CLIMATE_MODE_AUTO; changed = true; }
-        else if (value == "cool") { this->mode = climate::CLIMATE_MODE_COOL; changed = true; }
-        else if (value == "heat") { this->mode = climate::CLIMATE_MODE_HEAT; changed = true; }
+        if (value == "cool") { this->mode = climate::CLIMATE_MODE_COOL; changed = true; }
         else if (value == "dry") { this->mode = climate::CLIMATE_MODE_DRY; changed = true; }
         else if (value == "fan_only") { this->mode = climate::CLIMATE_MODE_FAN_ONLY; changed = true; }
     }
@@ -658,7 +660,17 @@ void SinclairACCNT::handle_debug_status_()
 
 void SinclairACCNT::handle_debug_packets_()
 {
-    this->debug_server_->send(200, "application/json", this->json_packets_().c_str());
+    uint8_t limit = DEBUG_PACKET_RESPONSE_SIZE;
+    if (this->debug_server_->hasArg("limit"))
+    {
+        int parsed_limit = atoi(this->debug_server_->arg("limit").c_str());
+        if (parsed_limit > 0)
+        {
+            limit = std::min(static_cast<uint8_t>(parsed_limit), DEBUG_PACKET_HISTORY_SIZE);
+        }
+    }
+
+    this->debug_server_->send(200, "application/json", this->json_packets_(limit).c_str());
 }
 
 void SinclairACCNT::handle_debug_raw_send_()
@@ -669,7 +681,9 @@ void SinclairACCNT::handle_debug_raw_send_()
         return;
     }
 
-    if (millis() - this->last_debug_raw_sent_ < protocol::TIME_REFRESH_PERIOD_MS)
+    const uint32_t now = millis();
+    if (now - this->last_debug_raw_sent_ < protocol::TIME_REFRESH_PERIOD_MS ||
+        now - this->last_packet_sent_ < protocol::TIME_REFRESH_PERIOD_MS)
     {
         this->debug_server_->send(429, "application/json", "{\"ok\":false,\"error\":\"Rate limited\"}");
         return;
@@ -683,7 +697,8 @@ void SinclairACCNT::handle_debug_raw_send_()
     }
 
     this->write_array(packet);
-    this->last_debug_raw_sent_ = millis();
+    this->last_debug_raw_sent_ = now;
+    this->last_packet_sent_ = this->last_debug_raw_sent_;
     this->wait_response_ = true;
     log_packet(packet, true);
     this->record_debug_packet_(packet, true);
@@ -766,6 +781,7 @@ void SinclairACCNT::loop()
         this->wait_response_ = false;
         /* log for ESPHome debug */
         log_packet(this->serialProcess_.data);
+        this->record_debug_packet_(this->serialProcess_.data, false);
 
         if (!verify_packet())  /* Verify length, header, counter and checksum */
         {
@@ -773,7 +789,6 @@ void SinclairACCNT::loop()
         }
 
         this->last_packet_received_ = millis();  /* Set the time at which we received our last packet */
-        this->record_debug_packet_(this->serialProcess_.data, false);
 
         /* A valid recieved packet of accepted type marks module as being ready */
         if (this->state_ != ACState::Ready)
@@ -792,7 +807,7 @@ void SinclairACCNT::loop()
     /* we will send a packet to the AC as a reponse to indicate changes */
     send_packet();
 
-    /* if there are no packets for 5 seconds - mark module as not ready */
+    /* if there are no packets for a while - mark module as not ready */
     if (millis() - this->last_packet_received_ >= protocol::TIME_TIMEOUT_INACTIVE_MS)
     {
         if (this->state_ != ACState::Initializing)
@@ -816,7 +831,14 @@ void SinclairACCNT::control(const climate::ClimateCall &call)
     {
         ESP_LOGV(TAG, "Requested mode change");
         this->update_ = ACUpdate::UpdateStart;
-        this->mode = *call.get_mode();
+        climate::ClimateMode requested_mode = *call.get_mode();
+        if (requested_mode == climate::CLIMATE_MODE_AUTO ||
+            requested_mode == climate::CLIMATE_MODE_HEAT ||
+            requested_mode == climate::CLIMATE_MODE_HEAT_COOL)
+        {
+            requested_mode = climate::CLIMATE_MODE_COOL;
+        }
+        this->mode = requested_mode;
     }
 
     if (call.get_target_temperature().has_value())
@@ -879,13 +901,155 @@ void SinclairACCNT::control(const climate::ClimateCall &call)
  * Send a raw packet, as is
  */
 
+void SinclairACCNT::send_short_power_packet_(uint32_t now)
+{
+    std::vector<uint8_t> packet(protocol::SET_SHORT_PACKET_LEN, 0);
+
+    const bool power = this->mode != climate::CLIMATE_MODE_OFF;
+
+    uint8_t mode = protocol::REPORT_SHORT_MODE_COOL;
+    climate::ClimateMode requested_mode = power ? this->mode : this->mode_internal_;
+    switch (requested_mode)
+    {
+        case climate::CLIMATE_MODE_COOL:
+            mode = protocol::REPORT_SHORT_MODE_COOL;
+            break;
+        case climate::CLIMATE_MODE_DRY:
+            mode = protocol::REPORT_SHORT_MODE_DRY;
+            break;
+        case climate::CLIMATE_MODE_FAN_ONLY:
+            mode = protocol::REPORT_SHORT_MODE_FAN;
+            break;
+        default:
+            mode = protocol::REPORT_SHORT_MODE_COOL;
+            break;
+    }
+
+    uint8_t fanSpeed1 = 1;
+    if (this->has_custom_fan_mode())
+    {
+        const char* custom_fan_mode = this->get_custom_fan_mode().c_str();
+        if (strcmp(custom_fan_mode, fan_modes::FAN_TURBO) == 0)
+            fanSpeed1 = 0;
+        else if (strcmp(custom_fan_mode, fan_modes::FAN_LOW) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_QUIET) == 0)
+            fanSpeed1 = 2;
+        else if (strcmp(custom_fan_mode, fan_modes::FAN_MEDL) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_MED) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_MEDH) == 0)
+            fanSpeed1 = 4;
+        else if (strcmp(custom_fan_mode, fan_modes::FAN_HIGH) == 0)
+            fanSpeed1 = 6;
+    }
+
+    uint16_t target_temperature_raw = protocol::REPORT_TEMP_SET_RAW_BASE;
+    if (this->target_temperature > protocol::REPORT_TEMP_SET_C_BASE)
+    {
+        target_temperature_raw += static_cast<uint16_t>(
+            lround((this->target_temperature - protocol::REPORT_TEMP_SET_C_BASE) * protocol::REPORT_TEMP_SET_RAW_STEP));
+    }
+
+    uint8_t mode_vertical_swing = protocol::REPORT_VSWING_OFF;
+    if (this->vertical_swing_state_ == vertical_swing_options::FULL)
+        mode_vertical_swing = protocol::REPORT_VSWING_FULL;
+    else if (this->vertical_swing_state_ == vertical_swing_options::DOWN)
+        mode_vertical_swing = protocol::REPORT_VSWING_DOWN;
+    else if (this->vertical_swing_state_ == vertical_swing_options::MIDD)
+        mode_vertical_swing = protocol::REPORT_VSWING_MIDD;
+    else if (this->vertical_swing_state_ == vertical_swing_options::MID)
+        mode_vertical_swing = protocol::REPORT_VSWING_MID;
+    else if (this->vertical_swing_state_ == vertical_swing_options::MIDU)
+        mode_vertical_swing = protocol::REPORT_VSWING_MIDU;
+    else if (this->vertical_swing_state_ == vertical_swing_options::UP)
+        mode_vertical_swing = protocol::REPORT_VSWING_UP;
+    else if (this->vertical_swing_state_ == vertical_swing_options::CDOWN)
+        mode_vertical_swing = protocol::REPORT_VSWING_CDOWN;
+    else if (this->vertical_swing_state_ == vertical_swing_options::CMIDD)
+        mode_vertical_swing = protocol::REPORT_VSWING_CMIDD;
+    else if (this->vertical_swing_state_ == vertical_swing_options::CMID)
+        mode_vertical_swing = protocol::REPORT_VSWING_CMID;
+    else if (this->vertical_swing_state_ == vertical_swing_options::CMIDU)
+        mode_vertical_swing = protocol::REPORT_VSWING_CMIDU;
+    else if (this->vertical_swing_state_ == vertical_swing_options::CUP)
+        mode_vertical_swing = protocol::REPORT_VSWING_CUP;
+
+    uint8_t mode_horizontal_swing = protocol::REPORT_HSWING_OFF;
+    if (this->horizontal_swing_state_ == horizontal_swing_options::FULL)
+        mode_horizontal_swing = protocol::REPORT_HSWING_FULL;
+    else if (this->horizontal_swing_state_ == horizontal_swing_options::CLEFT)
+        mode_horizontal_swing = protocol::REPORT_HSWING_CLEFT;
+    else if (this->horizontal_swing_state_ == horizontal_swing_options::CMIDL)
+        mode_horizontal_swing = protocol::REPORT_HSWING_CMIDL;
+    else if (this->horizontal_swing_state_ == horizontal_swing_options::CMID)
+        mode_horizontal_swing = protocol::REPORT_HSWING_CMID;
+    else if (this->horizontal_swing_state_ == horizontal_swing_options::CMIDR)
+        mode_horizontal_swing = protocol::REPORT_HSWING_CMIDR;
+    else if (this->horizontal_swing_state_ == horizontal_swing_options::CRIGHT)
+        mode_horizontal_swing = protocol::REPORT_HSWING_CRIGHT;
+
+    uint8_t current_temperature_raw = 0x11;
+    if (!std::isnan(this->current_temperature))
+    {
+        const int raw = static_cast<int>(lround(this->current_temperature - protocol::REPORT_SHORT_TEMP_ACT_OFF));
+        current_temperature_raw = static_cast<uint8_t>(std::max(0, std::min(255, raw)));
+    }
+
+    packet[protocol::SET_SHORT_TRANSITION_BYTE] = protocol::SET_SHORT_TRANSITION_VAL;
+    packet[protocol::REPORT_SHORT_MODE_BYTE] = mode;
+    packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = fanSpeed1;
+    packet[protocol::REPORT_SHORT_HSWING_BYTE] = mode_horizontal_swing;
+    packet[protocol::REPORT_SHORT_VSWING_BYTE] = (mode_vertical_swing << protocol::REPORT_VSWING_POS) | protocol::SET_SHORT_VSWING_CONST_MASK;
+    packet[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] = static_cast<uint8_t>(target_temperature_raw & 0xFF);
+    if ((target_temperature_raw & 0x100) != 0)
+        packet[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] |= protocol::REPORT_TEMP_SET_HI_MASK;
+    packet[protocol::REPORT_SHORT_PWR_BYTE] = protocol::REPORT_SHORT_PWR_BASE;
+    if (power)
+        packet[protocol::REPORT_SHORT_PWR_BYTE] |= protocol::REPORT_SHORT_PWR_MASK;
+    packet[protocol::REPORT_SHORT_TEMP_ACT_BYTE] = current_temperature_raw;
+
+    packet.insert(packet.begin(), protocol::CMD_OUT_PARAMS_SET);
+    packet.insert(packet.begin(), protocol::SET_SHORT_PACKET_LEN + 2);
+
+    uint8_t checksum = 0;
+    for (uint8_t i = 0 ; i < packet.size() ; i++)
+    {
+        checksum += packet[i];
+    }
+    packet.push_back(checksum);
+
+    packet.insert(packet.begin(), protocol::SYNC);
+    packet.insert(packet.begin(), protocol::SYNC);
+
+    this->last_packet_sent_ = now;
+    this->wait_response_ = true;
+    write_array(packet);
+    log_packet(packet, true);
+    this->record_debug_packet_(packet, true);
+    this->update_ = ACUpdate::NoUpdate;
+}
+
 void SinclairACCNT::send_packet()
 {
     std::vector<uint8_t> packet(protocol::SET_PACKET_LEN, 0);  /* Initialize packet contents */
+    const uint32_t now = millis();
+    const bool has_update = this->update_ != ACUpdate::NoUpdate;
 
-    if (this->wait_response_ == true && (millis() - this->last_packet_sent_) < protocol::TIME_REFRESH_PERIOD_MS)
+    if (now - this->last_packet_sent_ < protocol::TIME_REFRESH_PERIOD_MS)
     {
-        /* do net send packet too often or when we are waiting for report to come */
+        /* do not send command/clear frames too quickly */
+        return;
+    }
+    if (this->wait_response_ && !has_update)
+    {
+        /* wait for the last idle poll response before sending another idle poll */
+        return;
+    }
+    if (!has_update && (now - this->last_packet_sent_) < protocol::TIME_IDLE_POLL_PERIOD_MS)
+    {
+        /* keep idle polling slow so it cannot immediately wash out a command */
+        return;
+    }
+
+    if (this->update_ == ACUpdate::UpdateStart && ((this->mode != climate::CLIMATE_MODE_OFF) != this->power_internal_))
+    {
+        this->send_short_power_packet_(now);
         return;
     }
     
@@ -1291,7 +1455,7 @@ void SinclairACCNT::send_packet()
     packet.insert(packet.begin(), protocol::SYNC);
     packet.insert(packet.begin(), protocol::SYNC);
 
-    this->last_packet_sent_ = millis();  /* Save the time when we sent the last packet */
+    this->last_packet_sent_ = now;       /* Save the time when we sent the last packet */
     this->wait_response_ = true;
     write_array(packet);                 /* Sent the packet by UART */
     log_packet(packet, true);            /* Log uart for debug purposes */

@@ -62,6 +62,7 @@ namespace protocol {
     static const uint8_t REPORT_SHORT_TEMP_ACT_OFF = 4;
     static const uint8_t REPORT_SHORT_HSWING_BYTE = 4;
     static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
+    static const uint8_t REPORT_SHORT_PWR_BASE = 0x14;
 
     static const uint8_t REPORT_MODE_BYTE      = 6;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;
@@ -152,6 +153,10 @@ namespace protocol {
 
     /* SET packet shares all the byte definition with REPORT */
     static const uint8_t SET_PACKET_LEN        = 45;
+    static const uint8_t SET_SHORT_PACKET_LEN  = REPORT_SHORT_DATA_LEN;
+    static const uint8_t SET_SHORT_TRANSITION_BYTE = 1;
+    static const uint8_t SET_SHORT_TRANSITION_VAL  = 0x01;
+    static const uint8_t SET_SHORT_VSWING_CONST_MASK = 0x01;
     
     static const uint8_t SET_CONST_02_BYTE     = 39;
     static const uint8_t SET_CONST_02_VAL      = 0x02;
@@ -167,7 +172,8 @@ namespace protocol {
 
     /* time constraints */
     static const unsigned long TIME_REFRESH_PERIOD_MS   =  300;
-    static const unsigned long TIME_TIMEOUT_INACTIVE_MS = 1000;
+    static const unsigned long TIME_IDLE_POLL_PERIOD_MS = 5000;
+    static const unsigned long TIME_TIMEOUT_INACTIVE_MS = 15000;
 }
 
 /* Define packets from AC that would be processed by software */
@@ -204,7 +210,8 @@ class SinclairACCNT : public SinclairAC {
             std::array<uint8_t, DATA_MAX> bytes;
         };
 
-        static const uint8_t DEBUG_PACKET_HISTORY_SIZE = 12;
+        static const uint8_t DEBUG_PACKET_HISTORY_SIZE = 32;
+        static const uint8_t DEBUG_PACKET_RESPONSE_SIZE = 12;
 
         uint32_t last_debug_raw_sent_ = 0;
         bool debug_ui_enabled_ = false;
@@ -232,6 +239,7 @@ class SinclairACCNT : public SinclairAC {
         bool processUnitReport();
 
         void send_packet();
+        void send_short_power_packet_(uint32_t now);
 
         bool verify_packet();
         void handle_packet();
@@ -247,7 +255,7 @@ class SinclairACCNT : public SinclairAC {
         void handle_debug_control_();
 
         std::string json_status_();
-        std::string json_packets_();
+        std::string json_packets_(uint8_t max_packets);
         std::string json_escape_(const std::string &value);
         std::string packet_to_hex_(const uint8_t *data, size_t len);
         bool parse_hex_packet_(const std::string &hex_input, std::vector<uint8_t> *packet);
