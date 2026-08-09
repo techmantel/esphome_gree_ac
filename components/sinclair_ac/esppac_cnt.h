@@ -63,6 +63,7 @@ namespace protocol {
     static const uint8_t REPORT_SHORT_HSWING_BYTE = 4;
     static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
     static const uint8_t REPORT_SHORT_PWR_BASE = 0x14;
+    static const uint8_t REPORT_SHORT_TURBO_MASK = 0x20;
 
     static const uint8_t REPORT_MODE_BYTE      = 6;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;
@@ -233,6 +234,7 @@ class SinclairACCNT : public SinclairAC {
         climate::ClimateMode mode_internal_ = climate::CLIMATE_MODE_OFF;
         bool power_internal_ = false;
         float target_temperature_reported_ = -1.0f;
+        std::string fan_mode_reported_;
 
         std::string display_mode_internal_;
         bool display_power_internal_ = false;

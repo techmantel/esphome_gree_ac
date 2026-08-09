@@ -926,11 +926,16 @@ void SinclairACCNT::send_short_control_packet_(uint32_t now)
     }
 
     uint8_t fanSpeed1 = 1;
+    bool fanTurbo = false;
     if (this->has_custom_fan_mode())
     {
         const char* custom_fan_mode = this->get_custom_fan_mode().c_str();
         if (strcmp(custom_fan_mode, fan_modes::FAN_TURBO) == 0)
+        {
+            /* This unit reports and accepts Turbo as short-frame fan value 0. */
             fanSpeed1 = 0;
+            fanTurbo = true;
+        }
         else if (strcmp(custom_fan_mode, fan_modes::FAN_LOW) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_QUIET) == 0)
             fanSpeed1 = 2;
         else if (strcmp(custom_fan_mode, fan_modes::FAN_MEDL) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_MED) == 0 || strcmp(custom_fan_mode, fan_modes::FAN_MEDH) == 0)
@@ -1002,6 +1007,11 @@ void SinclairACCNT::send_short_control_packet_(uint32_t now)
     packet[protocol::REPORT_SHORT_PWR_BYTE] = protocol::REPORT_SHORT_PWR_BASE;
     if (power)
         packet[protocol::REPORT_SHORT_PWR_BYTE] |= protocol::REPORT_SHORT_PWR_MASK;
+    if (fanTurbo)
+    {
+        packet[protocol::REPORT_SHORT_PWR_BYTE] &= ~0x10;
+        packet[protocol::REPORT_SHORT_PWR_BYTE] |= protocol::REPORT_SHORT_TURBO_MASK;
+    }
     packet[protocol::REPORT_SHORT_TEMP_ACT_BYTE] = current_temperature_raw;
 
     packet.insert(packet.begin(), protocol::CMD_OUT_PARAMS_SET);
@@ -1050,7 +1060,9 @@ void SinclairACCNT::send_packet()
     const bool power_changed = (this->mode != climate::CLIMATE_MODE_OFF) != this->power_internal_;
     const bool target_temperature_changed = this->target_temperature_reported_ < 0.0f ||
         std::fabs(this->target_temperature - this->target_temperature_reported_) >= 0.1f;
-    if (this->update_ == ACUpdate::UpdateStart && (power_changed || target_temperature_changed))
+    const bool fan_changed = this->fan_mode_reported_.empty() ||
+        this->get_custom_fan_mode() != this->fan_mode_reported_;
+    if (this->update_ == ACUpdate::UpdateStart && (power_changed || target_temperature_changed || fan_changed))
     {
         this->send_short_control_packet_(now);
         return;
@@ -1233,10 +1245,11 @@ void SinclairACCNT::send_packet()
         }
         else if (strcmp(custom_fan_mode, fan_modes::FAN_TURBO) == 0)
         {
-            fanSpeed1 = 0;
+            /* The remote capture shows Turbo is independent of fan speed. */
+            fanSpeed1 = 6;
             fanSpeed2 = 0;
             fanQuiet  = false;
-            fanTurbo  = false;
+            fanTurbo  = true;
         }
         else
         {
@@ -1568,6 +1581,7 @@ bool SinclairACCNT::processUnitReport()
         hasChanged = true;
     }
     this->set_custom_fan_mode_(newFanMode);
+    this->fan_mode_reported_ = newFanMode;
     
     uint16_t newTargetTemperatureRaw;
     if (this->is_short_report_())
@@ -1758,9 +1772,12 @@ const char* SinclairACCNT::determine_fan_mode()
     }
     (void) fanSpeed2;
     (void) fanQuiet;
-    (void) fanTurbo;
     /* we have extracted all the data, let's do the processing */
-    if      (fanSpeed1 == 0)
+    if (fanTurbo)
+    {
+        return fan_modes::FAN_TURBO;
+    }
+    else if (fanSpeed1 == 0)
     {
         return fan_modes::FAN_TURBO;
     }
