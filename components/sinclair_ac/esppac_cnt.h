@@ -232,6 +232,7 @@ class SinclairACCNT : public SinclairAC {
 
         climate::ClimateMode mode_internal_ = climate::CLIMATE_MODE_OFF;
         bool power_internal_ = false;
+        float target_temperature_reported_ = -1.0f;
 
         std::string display_mode_internal_;
         bool display_power_internal_ = false;
@@ -239,7 +240,7 @@ class SinclairACCNT : public SinclairAC {
         bool processUnitReport();
 
         void send_packet();
-        void send_short_power_packet_(uint32_t now);
+        void send_short_control_packet_(uint32_t now);
 
         bool verify_packet();
         void handle_packet();

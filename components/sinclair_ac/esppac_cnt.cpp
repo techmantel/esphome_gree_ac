@@ -901,7 +901,7 @@ void SinclairACCNT::control(const climate::ClimateCall &call)
  * Send a raw packet, as is
  */
 
-void SinclairACCNT::send_short_power_packet_(uint32_t now)
+void SinclairACCNT::send_short_control_packet_(uint32_t now)
 {
     std::vector<uint8_t> packet(protocol::SET_SHORT_PACKET_LEN, 0);
 
@@ -1047,9 +1047,12 @@ void SinclairACCNT::send_packet()
         return;
     }
 
-    if (this->update_ == ACUpdate::UpdateStart && ((this->mode != climate::CLIMATE_MODE_OFF) != this->power_internal_))
+    const bool power_changed = (this->mode != climate::CLIMATE_MODE_OFF) != this->power_internal_;
+    const bool target_temperature_changed = this->target_temperature_reported_ < 0.0f ||
+        std::fabs(this->target_temperature - this->target_temperature_reported_) >= 0.1f;
+    if (this->update_ == ACUpdate::UpdateStart && (power_changed || target_temperature_changed))
     {
-        this->send_short_power_packet_(now);
+        this->send_short_control_packet_(now);
         return;
     }
     
@@ -1579,6 +1582,7 @@ bool SinclairACCNT::processUnitReport()
     }
     float newTargetTemperature = protocol::REPORT_TEMP_SET_C_BASE
         + static_cast<float>(newTargetTemperatureRaw - protocol::REPORT_TEMP_SET_RAW_BASE) / protocol::REPORT_TEMP_SET_RAW_STEP;
+    this->target_temperature_reported_ = newTargetTemperature;
     if (this->target_temperature != newTargetTemperature) hasChanged = true;
     this->update_target_temperature(newTargetTemperature);
     
