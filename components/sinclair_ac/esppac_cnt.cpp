@@ -64,7 +64,7 @@ static const char DEBUG_UI_HTML[] = R"HTML(
                 <button onclick="sendControl()">Queue Send</button>
             </div>
             <div class="row">
-                <select id="vswing"><option value="">V Swing (keep)</option><option value="off">off</option><option value="full">full</option><option value="up">up</option><option value="mid">mid</option><option value="down">down</option></select>
+                <select id="vswing"><option value="">V Swing (keep)</option><option value="off">Off / last position</option><option value="full">Full sweep</option><option value="swing_up">Sweep upper 3</option><option value="swing_mid">Sweep middle 3</option><option value="swing_down">Sweep lower 3</option><option value="fixed_up">Fixed up</option><option value="fixed_mid_up">Fixed mid-up</option><option value="fixed_middle">Fixed middle</option><option value="fixed_mid_down">Fixed mid-down</option><option value="fixed_down">Fixed down</option></select>
                 <select id="hswing"><option value="">H Swing (keep)</option><option value="off">off</option><option value="full">full</option><option value="left">left</option><option value="mid">mid</option><option value="right">right</option></select>
                 <select id="display"><option value="">Display (keep)</option><option value="off">off</option><option value="auto">auto</option><option value="set">set</option><option value="act">act</option><option value="out">out</option></select>
                 <select id="unit"><option value="">Unit (keep)</option><option value="c">C</option><option value="f">F</option></select>
@@ -604,6 +604,17 @@ bool SinclairACCNT::apply_debug_control_()
         const auto value = this->debug_server_->arg("vswing");
         if (value == "off") { this->vertical_swing_state_ = vertical_swing_options::OFF; changed = true; }
         else if (value == "full") { this->vertical_swing_state_ = vertical_swing_options::FULL; changed = true; }
+        else if (value == "swing_up") { this->vertical_swing_state_ = vertical_swing_options::UP; changed = true; }
+        else if (value == "swing_mid_up") { this->vertical_swing_state_ = vertical_swing_options::MIDU; changed = true; }
+        else if (value == "swing_mid") { this->vertical_swing_state_ = vertical_swing_options::MIDD; changed = true; }
+        else if (value == "swing_mid_down") { this->vertical_swing_state_ = vertical_swing_options::MIDD; changed = true; }
+        else if (value == "swing_down") { this->vertical_swing_state_ = vertical_swing_options::DOWN; changed = true; }
+        else if (value == "fixed_up") { this->vertical_swing_state_ = vertical_swing_options::CUP; changed = true; }
+        else if (value == "fixed_mid_up") { this->vertical_swing_state_ = vertical_swing_options::CMIDU; changed = true; }
+        else if (value == "fixed_mid_down") { this->vertical_swing_state_ = vertical_swing_options::CMIDD; changed = true; }
+        else if (value == "fixed_middle") { this->vertical_swing_state_ = vertical_swing_options::CMID; changed = true; }
+        else if (value == "fixed_down") { this->vertical_swing_state_ = vertical_swing_options::CDOWN; changed = true; }
+        // Keep the original debug API aliases for clients already using them.
         else if (value == "up") { this->vertical_swing_state_ = vertical_swing_options::UP; changed = true; }
         else if (value == "mid") { this->vertical_swing_state_ = vertical_swing_options::MID; changed = true; }
         else if (value == "down") { this->vertical_swing_state_ = vertical_swing_options::DOWN; changed = true; }
@@ -955,29 +966,29 @@ void SinclairACCNT::send_short_control_packet_(uint32_t now)
             lround((this->target_temperature - protocol::REPORT_TEMP_SET_C_BASE) * protocol::REPORT_TEMP_SET_RAW_STEP));
     }
 
-    uint8_t mode_vertical_swing = protocol::REPORT_VSWING_OFF;
+    uint8_t mode_vertical_swing = protocol::REPORT_SHORT_VSWING_LAST;
     if (this->vertical_swing_state_ == vertical_swing_options::FULL)
-        mode_vertical_swing = protocol::REPORT_VSWING_FULL;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_AUTO;
     else if (this->vertical_swing_state_ == vertical_swing_options::DOWN)
-        mode_vertical_swing = protocol::REPORT_VSWING_DOWN;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_DOWN_AUTO;
     else if (this->vertical_swing_state_ == vertical_swing_options::MIDD)
-        mode_vertical_swing = protocol::REPORT_VSWING_MIDD;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MID_AUTO;
     else if (this->vertical_swing_state_ == vertical_swing_options::MID)
-        mode_vertical_swing = protocol::REPORT_VSWING_MID;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MID;
     else if (this->vertical_swing_state_ == vertical_swing_options::MIDU)
-        mode_vertical_swing = protocol::REPORT_VSWING_MIDU;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MIDU;
     else if (this->vertical_swing_state_ == vertical_swing_options::UP)
-        mode_vertical_swing = protocol::REPORT_VSWING_UP;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_UP_AUTO;
     else if (this->vertical_swing_state_ == vertical_swing_options::CDOWN)
-        mode_vertical_swing = protocol::REPORT_VSWING_CDOWN;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_DOWN;
     else if (this->vertical_swing_state_ == vertical_swing_options::CMIDD)
-        mode_vertical_swing = protocol::REPORT_VSWING_CMIDD;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MIDD;
     else if (this->vertical_swing_state_ == vertical_swing_options::CMID)
-        mode_vertical_swing = protocol::REPORT_VSWING_CMID;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MID;
     else if (this->vertical_swing_state_ == vertical_swing_options::CMIDU)
-        mode_vertical_swing = protocol::REPORT_VSWING_CMIDU;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_MIDU;
     else if (this->vertical_swing_state_ == vertical_swing_options::CUP)
-        mode_vertical_swing = protocol::REPORT_VSWING_CUP;
+        mode_vertical_swing = protocol::REPORT_SHORT_VSWING_UP;
 
     uint8_t mode_horizontal_swing = protocol::REPORT_HSWING_OFF;
     if (this->horizontal_swing_state_ == horizontal_swing_options::FULL)
@@ -1004,7 +1015,7 @@ void SinclairACCNT::send_short_control_packet_(uint32_t now)
     packet[protocol::REPORT_SHORT_MODE_BYTE] = mode;
     packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = fanSpeed1;
     packet[protocol::REPORT_SHORT_HSWING_BYTE] = mode_horizontal_swing;
-    packet[protocol::REPORT_SHORT_VSWING_BYTE] = (mode_vertical_swing << protocol::REPORT_VSWING_POS) | protocol::SET_SHORT_VSWING_CONST_MASK;
+    packet[protocol::REPORT_SHORT_VSWING_BYTE] = mode_vertical_swing;
     packet[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] = static_cast<uint8_t>(target_temperature_raw & 0xFF);
     if ((target_temperature_raw & 0x100) != 0)
         packet[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] |= protocol::REPORT_TEMP_SET_HI_MASK;
@@ -1067,8 +1078,10 @@ void SinclairACCNT::send_packet()
     const bool fan_changed = this->fan_mode_reported_.empty() ||
         this->get_custom_fan_mode() != this->fan_mode_reported_;
     const bool mode_changed = this->mode != this->mode_internal_ && this->mode != climate::CLIMATE_MODE_OFF;
+    const bool vertical_swing_changed = this->vertical_swing_reported_.empty() ||
+        this->vertical_swing_state_ != this->vertical_swing_reported_;
     if (this->update_ == ACUpdate::UpdateStart &&
-        (power_changed || target_temperature_changed || fan_changed || mode_changed))
+        (power_changed || target_temperature_changed || fan_changed || mode_changed || vertical_swing_changed))
     {
         this->send_short_control_packet_(now);
         return;
@@ -1629,6 +1642,7 @@ bool SinclairACCNT::processUnitReport()
 
     this->update_swing_vertical(verticalSwing);
     this->update_swing_horizontal(horizontalSwing);
+    this->vertical_swing_reported_ = verticalSwing;
 
     climate::ClimateSwingMode newSwingMode;
     /* update legacy swing mode to somehow represent actual state and support
@@ -1819,9 +1833,7 @@ std::string SinclairACCNT::determine_vertical_swing()
 {
     uint8_t mode;
     if (this->is_short_report_())
-    {
-        mode = (this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
-    }
+        mode = this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_SHORT_VSWING_MASK;
     else
     {
         mode = (this->serialProcess_.data[protocol::REPORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;

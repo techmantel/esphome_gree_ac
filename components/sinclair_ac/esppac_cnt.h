@@ -63,6 +63,17 @@ namespace protocol {
     static const uint8_t REPORT_SHORT_TEMP_ACT_OFF = 4;
     static const uint8_t REPORT_SHORT_HSWING_BYTE = 4;
     static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
+    static const uint8_t REPORT_SHORT_VSWING_MASK = 0x0F;
+    static const uint8_t REPORT_SHORT_VSWING_LAST = 0;
+    static const uint8_t REPORT_SHORT_VSWING_AUTO = 1;
+    static const uint8_t REPORT_SHORT_VSWING_UP = 2;
+    static const uint8_t REPORT_SHORT_VSWING_MIDU = 3;
+    static const uint8_t REPORT_SHORT_VSWING_MID = 4;
+    static const uint8_t REPORT_SHORT_VSWING_MIDD = 5;
+    static const uint8_t REPORT_SHORT_VSWING_DOWN = 6;
+    static const uint8_t REPORT_SHORT_VSWING_DOWN_AUTO = 7;
+    static const uint8_t REPORT_SHORT_VSWING_MID_AUTO = 9;
+    static const uint8_t REPORT_SHORT_VSWING_UP_AUTO = 11;
     static const uint8_t REPORT_SHORT_PWR_BASE = 0x14;
     static const uint8_t REPORT_SHORT_TURBO_MASK = 0x20;
     static const uint8_t REPORT_SHORT_HEAT_MASK = 0x08;
@@ -237,6 +248,7 @@ class SinclairACCNT : public SinclairAC {
         bool power_internal_ = false;
         float target_temperature_reported_ = -1.0f;
         std::string fan_mode_reported_;
+        std::string vertical_swing_reported_;
 
         std::string display_mode_internal_;
         bool display_power_internal_ = false;
