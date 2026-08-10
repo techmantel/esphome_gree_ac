@@ -53,7 +53,8 @@ namespace protocol {
     static const uint8_t REPORT_SHORT_MODE_BYTE = 2;
     static const uint8_t REPORT_SHORT_MODE_COOL = 1;
     static const uint8_t REPORT_SHORT_MODE_DRY  = 2;
-    static const uint8_t REPORT_SHORT_MODE_FAN  = 4;
+    static const uint8_t REPORT_SHORT_MODE_FAN  = 3;
+    static const uint8_t REPORT_SHORT_MODE_AUTO_HEAT = 4;
     static const uint8_t REPORT_SHORT_MODE_HEAT = 8;
     static const uint8_t REPORT_SHORT_FAN_SPD1_BYTE = 3;
     static const uint8_t REPORT_SHORT_TEMP_SET_LO_BYTE = 6;
@@ -64,6 +65,7 @@ namespace protocol {
     static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
     static const uint8_t REPORT_SHORT_PWR_BASE = 0x14;
     static const uint8_t REPORT_SHORT_TURBO_MASK = 0x20;
+    static const uint8_t REPORT_SHORT_HEAT_MASK = 0x08;
 
     static const uint8_t REPORT_MODE_BYTE      = 6;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;

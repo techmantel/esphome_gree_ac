@@ -58,7 +58,7 @@ static const char DEBUG_UI_HTML[] = R"HTML(
             <div class="row"><strong>Structured Control</strong></div>
             <div class="row">
                 <select id="power"><option value="">Power (keep)</option><option value="on">On (cool)</option><option value="off">Off</option></select>
-                <select id="mode"><option value="">Mode (keep)</option><option>cool</option><option>dry</option><option>fan_only</option></select>
+                <select id="mode"><option value="">Mode (keep)</option><option>cool</option><option>heat</option><option>dry</option><option>fan_only</option></select>
                 <input id="temp" type="number" step="1" min="16" max="30" placeholder="Temp">
                 <select id="fan"><option value="">Fan (keep)</option><option>auto</option><option>low</option><option>med</option><option>high</option><option>turbo</option></select>
                 <button onclick="sendControl()">Queue Send</button>
@@ -258,7 +258,7 @@ function decodePacket(packet){
         const shortReport=cmd===0x31&&bytes.length===38;
         const pwr=shortReport?(bytes[19]&0x02)!==0:(bytes[protocolConfig.pwr_byte]&0x80)!==0;
         const mode=shortReport?bytes[protocolConfig.mode_byte]:(bytes[protocolConfig.mode_byte]&0x70)>>4;
-        const modeMap=shortReport?{1:'cool',2:'dry',4:'fan',8:'heat'}:{1:'cool',2:'dry',3:'fan',4:'heat'};
+        const modeMap=shortReport?{1:'cool',2:'dry',3:'fan',4:'heat',8:'heat'}:{1:'cool',2:'dry',3:'fan',4:'heat'};
         const tempSetRaw=bytes[protocolConfig.temp_set_lo_byte]+(bytes[protocolConfig.temp_set_hi_byte]<<8);
         const tempSet=16+((tempSetRaw-0x00A0)/10);
         let tempStr=tempSet.toFixed(1);
@@ -569,6 +569,7 @@ bool SinclairACCNT::apply_debug_control_()
     {
         const auto value = this->debug_server_->arg("mode");
         if (value == "cool") { this->mode = climate::CLIMATE_MODE_COOL; changed = true; }
+        else if (value == "heat") { this->mode = climate::CLIMATE_MODE_HEAT; changed = true; }
         else if (value == "dry") { this->mode = climate::CLIMATE_MODE_DRY; changed = true; }
         else if (value == "fan_only") { this->mode = climate::CLIMATE_MODE_FAN_ONLY; changed = true; }
     }
@@ -920,6 +921,9 @@ void SinclairACCNT::send_short_control_packet_(uint32_t now)
         case climate::CLIMATE_MODE_FAN_ONLY:
             mode = protocol::REPORT_SHORT_MODE_FAN;
             break;
+        case climate::CLIMATE_MODE_HEAT:
+            mode = protocol::REPORT_SHORT_MODE_AUTO_HEAT;
+            break;
         default:
             mode = protocol::REPORT_SHORT_MODE_COOL;
             break;
@@ -1062,7 +1066,9 @@ void SinclairACCNT::send_packet()
         std::fabs(this->target_temperature - this->target_temperature_reported_) >= 0.1f;
     const bool fan_changed = this->fan_mode_reported_.empty() ||
         this->get_custom_fan_mode() != this->fan_mode_reported_;
-    if (this->update_ == ACUpdate::UpdateStart && (power_changed || target_temperature_changed || fan_changed))
+    const bool mode_changed = this->mode != this->mode_internal_ && this->mode != climate::CLIMATE_MODE_OFF;
+    if (this->update_ == ACUpdate::UpdateStart &&
+        (power_changed || target_temperature_changed || fan_changed || mode_changed))
     {
         this->send_short_control_packet_(now);
         return;
@@ -1695,6 +1701,11 @@ climate::ClimateMode SinclairACCNT::determine_mode()
                 break;
             case protocol::REPORT_SHORT_MODE_FAN:
                 this->mode_internal_ = climate::CLIMATE_MODE_FAN_ONLY;
+                break;
+            case protocol::REPORT_SHORT_MODE_AUTO_HEAT:
+                /* Auto is intentionally not inferred yet; this unit's 0x04
+                 * report is exposed as its explicit Heat state for now. */
+                this->mode_internal_ = climate::CLIMATE_MODE_HEAT;
                 break;
             case protocol::REPORT_SHORT_MODE_HEAT:
                 this->mode_internal_ = climate::CLIMATE_MODE_HEAT;
