@@ -64,5 +64,7 @@ climate:
       name: ${devicename} Sleep
     xfan_switch:
       name: ${devicename} X-fan
+    ifeel_switch:
+      name: ${devicename} iFeel
     save_switch:
       name: ${devicename} Save|8 Heat

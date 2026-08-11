@@ -162,6 +162,9 @@ namespace protocol {
     static const uint8_t REPORT_XFAN_BYTE      = 6;
     static const uint8_t REPORT_XFAN_MASK      = 0b00001000;
 
+    static const uint8_t REPORT_IFEEL_BYTE     = 5;
+    static const uint8_t REPORT_IFEEL_MASK     = 0b00000100;
+
     static const uint8_t REPORT_SAVE_BYTE      = 11;
     static const uint8_t REPORT_SAVE_MASK      = 0b01000000;
 
@@ -208,6 +211,7 @@ class SinclairACCNT : public SinclairAC {
         void on_plasma_change(bool plasma) override;
         void on_sleep_change(bool sleep) override;
         void on_xfan_change(bool xfan) override;
+        void on_ifeel_change(bool ifeel) override;
         void on_save_change(bool save) override;
 
         void setup() override;
@@ -249,6 +253,7 @@ class SinclairACCNT : public SinclairAC {
         float target_temperature_reported_ = -1.0f;
         std::string fan_mode_reported_;
         std::string vertical_swing_reported_;
+        bool auxiliary_state_known_ = false;
 
         std::string display_mode_internal_;
         bool display_power_internal_ = false;
@@ -292,6 +297,7 @@ class SinclairACCNT : public SinclairAC {
         bool determine_plasma();
         bool determine_sleep();
         bool determine_xfan();
+        bool determine_ifeel();
         bool determine_save();
 };
 
