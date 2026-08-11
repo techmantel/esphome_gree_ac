@@ -205,6 +205,16 @@ void SinclairAC::update_xfan(bool xfan)
     }
 }
 
+void SinclairAC::update_ifeel(bool ifeel)
+{
+    this->ifeel_state_ = ifeel;
+
+    if (this->ifeel_switch_ != nullptr)
+    {
+        this->ifeel_switch_->publish_state(this->ifeel_state_);
+    }
+}
+
 void SinclairAC::update_save(bool save)
 {
     this->save_state_ = save;
@@ -331,6 +341,16 @@ void SinclairAC::set_xfan_switch(switch_::Switch *xfan_switch)
         if (state == this->xfan_state_)
             return;
         this->on_xfan_change(state);
+    });
+}
+
+void SinclairAC::set_ifeel_switch(switch_::Switch *ifeel_switch)
+{
+    this->ifeel_switch_ = ifeel_switch;
+    this->ifeel_switch_->add_on_state_callback([this](bool state) {
+        if (state == this->ifeel_state_)
+            return;
+        this->on_ifeel_change(state);
     });
 }
 

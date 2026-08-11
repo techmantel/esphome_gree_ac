@@ -34,6 +34,7 @@ CONF_DISPLAY_UNIT_SELECT        = "display_unit_select"
 CONF_PLASMA_SWITCH              = "plasma_switch"
 CONF_SLEEP_SWITCH               = "sleep_switch"
 CONF_XFAN_SWITCH                = "xfan_switch"
+CONF_IFEEL_SWITCH               = "ifeel_switch"
 CONF_SAVE_SWITCH                = "save_switch"
 
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
@@ -95,6 +96,7 @@ SCHEMA = climate.climate_schema(climate.Climate).extend(
         cv.Optional(CONF_PLASMA_SWITCH): switch_schema,
         cv.Optional(CONF_SLEEP_SWITCH): switch_schema,
         cv.Optional(CONF_XFAN_SWITCH): switch_schema,
+        cv.Optional(CONF_IFEEL_SWITCH): switch_schema,
         cv.Optional(CONF_SAVE_SWITCH): switch_schema,
     }
 ).extend(uart.UART_DEVICE_SCHEMA)
@@ -152,7 +154,7 @@ async def to_code(config):
         sens = await cg.get_variable(config[CONF_CURRENT_TEMPERATURE_SENSOR])
         cg.add(var.set_current_temperature_sensor(sens))
         
-    for s in [CONF_PLASMA_SWITCH, CONF_SLEEP_SWITCH, CONF_XFAN_SWITCH, CONF_SAVE_SWITCH]:
+    for s in [CONF_PLASMA_SWITCH, CONF_SLEEP_SWITCH, CONF_XFAN_SWITCH, CONF_IFEEL_SWITCH, CONF_SAVE_SWITCH]:
         if s in config:
             conf = config[s]
             a_switch = cg.new_Pvariable(conf[CONF_ID])

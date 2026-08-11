@@ -73,6 +73,7 @@ static const char DEBUG_UI_HTML[] = R"HTML(
                 <label><input id="plasma" type="checkbox">plasma</label>
                 <label><input id="sleep" type="checkbox">sleep</label>
                 <label><input id="xfan" type="checkbox">xfan</label>
+                <label><input id="ifeel" type="checkbox">iFeel</label>
                 <label><input id="save" type="checkbox">save</label>
             </div>
             <div id="control_result" class="muted"></div>
@@ -270,10 +271,14 @@ function decodePacket(packet){
         const fanMap={0:'turbo',1:'auto',2:'low',4:'med',6:'high'};
         const hswing=bytes[protocolConfig.hswing_byte]&0x07;
         const hswingNames=['off','full','left','midl','mid','midr','right'];
-        const vswing=(bytes[protocolConfig.vswing_byte]&0xf0)>>4;
-        const vswingNames=['off','full','cup','cmidu','cmid','cmidd','cdown','down','midd','mid','midu','up'];
+        const vswing=shortReport?(bytes[protocolConfig.vswing_byte]&0x0f):((bytes[protocolConfig.vswing_byte]&0xf0)>>4);
+        const vswingNames=shortReport?{
+            0:'off / last',1:'full sweep',2:'fixed position (ambiguous)',3:'fixed mid-up',4:'fixed middle',
+            5:'fixed mid-down',6:'fixed down',7:'sweep lower 3',9:'sweep middle 3',11:'sweep upper 3'
+        }:{0:'off',1:'full',2:'fixed up',3:'fixed mid-up',4:'fixed middle',5:'fixed mid-down',6:'fixed down',7:'sweep lower 3',8:'sweep middle 3',9:'sweep middle',10:'sweep upper 3',11:'sweep upper 3'};
+        const aux=shortReport?'':` xfan=${(bytes[6]&0x08)!==0?'ON':'OFF'} ifeel=${(bytes[5]&0x04)!==0?'ON':'OFF'}`;
         const pwrSource=shortReport?` raw19=0x${bytes[19].toString(16).toUpperCase().padStart(2,'0')}`:'';
-        return `[RX] pwr=${pwr?'ON':'OFF'}${pwrSource} mode=${modeMap[mode]||'keep'} temp=${tempStr} fan=${fanMap[fanSpd]||`unk(${fanSpd})`} hswing=${hswingNames[hswing]||hswing} vswing=${vswingNames[vswing]||vswing}`;
+        return `[RX] pwr=${pwr?'ON':'OFF'}${pwrSource} mode=${modeMap[mode]||'keep'} temp=${tempStr} fan=${fanMap[fanSpd]||`unk(${fanSpd})`} hswing=${hswingNames[hswing]||hswing} vswing=${vswingNames[vswing]||vswing}${aux}`;
     }catch(e){
         return `(err:${e.message})`;
     }
@@ -315,7 +320,9 @@ async function refresh(){
     q('ready').textContent=st.ready?'READY':'INITIALIZING';
     q('ready').className=st.ready?'ok':'bad';
     q('meta').textContent=`state=${st.state} update=${st.update} rx_age=${st.rx_age_ms} tx_age=${st.tx_age_ms}`;
-    q('climate').textContent=`mode=${st.mode} target temp=${st.target_temperature} current temp=${st.current_temperature} fan=${st.fan}`;
+    const auxState=v=>v===null?'not reported':(v?'ON':'OFF');
+    const vertical=st.vertical_swing_raw===2?`${st.vertical_swing} (UART raw 0x02, ambiguous)`:st.vertical_swing;
+    q('climate').textContent=`mode=${st.mode} target temp=${st.target_temperature} current temp=${st.current_temperature} fan=${st.fan} vertical=${vertical} xfan=${auxState(st.xfan)} iFeel=${auxState(st.ifeel)}`;
     const p=await j('/api/packets');
     const packets=p.packets||[];
     const showRx=q('show_rx') && q('show_rx').checked;
@@ -368,7 +375,7 @@ async function sendControl(){
     const body=new URLSearchParams({
         power:s(q('power').value),mode:s(q('mode').value),temp:s(q('temp').value),fan:s(q('fan').value),
         vswing:s(q('vswing').value),hswing:s(q('hswing').value),display:s(q('display').value),unit:s(q('unit').value),
-        plasma:b(q('plasma').checked),sleep:b(q('sleep').checked),xfan:b(q('xfan').checked),save:b(q('save').checked)
+        plasma:b(q('plasma').checked),sleep:b(q('sleep').checked),xfan:b(q('xfan').checked),ifeel:b(q('ifeel').checked),save:b(q('save').checked)
     });
     const r=await j('/api/control',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body});
     q('control_result').textContent=r.ok?'queued':'error: '+(r.error||'unknown');
@@ -512,6 +519,16 @@ std::string SinclairACCNT::json_status_()
     out += ",\"power\":" + std::string(this->power_internal_ ? "true" : "false");
     out += ",\"mode\":\"" + mode + "\"";
     out += ",\"fan\":\"" + this->json_escape_(fan) + "\"";
+    out += ",\"vertical_swing\":\"" + this->json_escape_(this->vertical_swing_state_) + "\"";
+    out += ",\"vertical_swing_raw\":";
+    if (this->is_short_report_() && this->serialProcess_.data.size() > protocol::REPORT_SHORT_VSWING_BYTE)
+        out += std::to_string(this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_SHORT_VSWING_MASK);
+    else
+        out += "null";
+    out += ",\"xfan\":";
+    out += this->auxiliary_state_known_ ? (this->xfan_state_ ? "true" : "false") : "null";
+    out += ",\"ifeel\":";
+    out += this->auxiliary_state_known_ ? (this->ifeel_state_ ? "true" : "false") : "null";
     out += ",\"target_temperature\":";
     out += std::isfinite(this->target_temperature) ? std::to_string(this->target_temperature) : "null";
     out += ",\"current_temperature\":";
@@ -650,6 +667,7 @@ bool SinclairACCNT::apply_debug_control_()
     if (this->debug_server_->hasArg("plasma")) { this->plasma_state_ = this->debug_server_->arg("plasma") == "1"; changed = true; }
     if (this->debug_server_->hasArg("sleep")) { this->sleep_state_ = this->debug_server_->arg("sleep") == "1"; changed = true; }
     if (this->debug_server_->hasArg("xfan")) { this->xfan_state_ = this->debug_server_->arg("xfan") == "1"; changed = true; }
+    if (this->debug_server_->hasArg("ifeel")) { this->ifeel_state_ = this->debug_server_->arg("ifeel") == "1"; changed = true; }
     if (this->debug_server_->hasArg("save")) { this->save_state_ = this->debug_server_->arg("save") == "1"; changed = true; }
 
     if (changed)
@@ -1467,6 +1485,12 @@ void SinclairACCNT::send_packet()
         packet[protocol::REPORT_XFAN_BYTE] |= protocol::REPORT_XFAN_MASK;
     }
 
+    /* IFEEL --------------------------------------------------------------------------- */
+    if (this->ifeel_state_)
+    {
+        packet[protocol::REPORT_IFEEL_BYTE] |= protocol::REPORT_IFEEL_MASK;
+    }
+
     /* SAVE --------------------------------------------------------------------------- */
     if (this->save_state_)
     {
@@ -1664,7 +1688,13 @@ bool SinclairACCNT::processUnitReport()
 
     this->update_plasma(determine_plasma());
     this->update_sleep(determine_sleep());
-    this->update_xfan(determine_xfan());
+    /* The 38-byte report omits the auxiliary iFeel/X-FAN fields. */
+    if (!this->is_short_report_())
+    {
+        this->auxiliary_state_known_ = true;
+        this->update_xfan(determine_xfan());
+        this->update_ifeel(determine_ifeel());
+    }
     this->update_save(determine_save());
 
     return hasChanged;
@@ -1833,7 +1863,34 @@ std::string SinclairACCNT::determine_vertical_swing()
 {
     uint8_t mode;
     if (this->is_short_report_())
+    {
         mode = this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_SHORT_VSWING_MASK;
+        switch (mode) {
+            case protocol::REPORT_SHORT_VSWING_LAST:
+                return vertical_swing_options::OFF;
+            case protocol::REPORT_SHORT_VSWING_AUTO:
+                return vertical_swing_options::FULL;
+            case protocol::REPORT_SHORT_VSWING_UP:
+                return vertical_swing_options::CUP;
+            case protocol::REPORT_SHORT_VSWING_MIDU:
+                return vertical_swing_options::CMIDU;
+            case protocol::REPORT_SHORT_VSWING_MID:
+                return vertical_swing_options::CMID;
+            case protocol::REPORT_SHORT_VSWING_MIDD:
+                return vertical_swing_options::CMIDD;
+            case protocol::REPORT_SHORT_VSWING_DOWN:
+                return vertical_swing_options::CDOWN;
+            case protocol::REPORT_SHORT_VSWING_DOWN_AUTO:
+                return vertical_swing_options::DOWN;
+            case protocol::REPORT_SHORT_VSWING_MID_AUTO:
+                return vertical_swing_options::MIDD;
+            case protocol::REPORT_SHORT_VSWING_UP_AUTO:
+                return vertical_swing_options::UP;
+            default:
+                ESP_LOGW(TAG, "Received unknown short vertical swing mode");
+                return vertical_swing_options::OFF;
+        }
+    }
     else
     {
         mode = (this->serialProcess_.data[protocol::REPORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
@@ -1964,6 +2021,10 @@ bool SinclairACCNT::determine_xfan(){
     return (this->serialProcess_.data[protocol::REPORT_XFAN_BYTE] & protocol::REPORT_XFAN_MASK) != 0;
 }
 
+bool SinclairACCNT::determine_ifeel(){
+    return (this->serialProcess_.data[protocol::REPORT_IFEEL_BYTE] & protocol::REPORT_IFEEL_MASK) != 0;
+}
+
 bool SinclairACCNT::determine_save(){
     return (this->serialProcess_.data[protocol::REPORT_SAVE_BYTE] & protocol::REPORT_SAVE_MASK) != 0;
 }
@@ -2048,6 +2109,17 @@ void SinclairACCNT::on_xfan_change(bool xfan)
 
     this->update_ = ACUpdate::UpdateStart;
     this->xfan_state_ = xfan;
+}
+
+void SinclairACCNT::on_ifeel_change(bool ifeel)
+{
+    if (this->state_ != ACState::Ready)
+        return;
+
+    ESP_LOGD(TAG, "Setting iFeel");
+
+    this->update_ = ACUpdate::UpdateStart;
+    this->ifeel_state_ = ifeel;
 }
 
 void SinclairACCNT::on_save_change(bool save)
