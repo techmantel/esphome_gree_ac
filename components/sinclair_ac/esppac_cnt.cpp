@@ -7,50 +7,6 @@
 
 namespace esphome::sinclair_ac::CNT {
 
-namespace {
-constexpr uint8_t SYNC = 0x7E;
-constexpr uint8_t REPORT = 0x31;
-constexpr uint8_t SET = 0x01;
-constexpr uint8_t SHORT_LEN = 33;
-constexpr uint8_t FULL_LEN = 45;
-constexpr uint8_t MODE_BYTE = 2;
-constexpr uint8_t TRANSITION_BYTE = 1;
-constexpr uint8_t FAN_BYTE = 3;
-constexpr uint8_t SWING_BYTE = 5;
-constexpr uint8_t TEMP_SET_LO = 6;
-constexpr uint8_t TEMP_SET_HI = 7;
-constexpr uint8_t POWER_BYTE = 15;
-constexpr uint8_t TEMP_CURRENT = 16;
-constexpr uint8_t POWER_MASK = 0x02;
-constexpr uint8_t TURBO_MASK = 0x20;
-constexpr uint16_t TEMP_RAW_BASE = 0xA0;
-constexpr uint8_t TEMP_C_BASE = 16;
-constexpr uint8_t TEMP_RAW_STEP = 10;
-// The short command frame uses Gree's louvre-position values. Home
-// Assistant's binary Off state is represented by the fixed middle position.
-constexpr uint8_t SWING_FULL = 1;
-constexpr uint8_t SWING_FIXED_MIDDLE = 4;
-constexpr uint8_t MODE_COOL = 1;
-constexpr uint8_t MODE_DRY = 2;
-constexpr uint8_t MODE_FAN = 3;
-constexpr uint8_t MODE_AUTO = 4;
-constexpr uint8_t FULL_MODE_BYTE = 6;
-constexpr uint8_t FULL_POWER_BYTE = 4;
-constexpr uint8_t FULL_TARGET_LO = 10;
-constexpr uint8_t FULL_TARGET_HI = 11;
-constexpr uint8_t FULL_FAN_BYTE = 7;
-constexpr uint8_t FULL_SWING_BYTE = 9;
-constexpr uint8_t FULL_CURRENT_BYTE = 19;
-constexpr uint8_t FULL_CONST_BYTE = 39;
-constexpr uint8_t FULL_AF_BYTE = 3;
-constexpr uint8_t FULL_NOCHANGE_BYTE = 11;
-constexpr uint8_t FULL_CONST_BIT_BYTE = 7;
-constexpr uint8_t FAN_AUTO = 1;
-constexpr uint8_t FAN_LOW = 2;
-constexpr uint8_t FAN_MEDIUM = 4;
-constexpr uint8_t FAN_HIGH = 6;
-}  // namespace
-
 void SinclairACCNT::setup() {
   SinclairAC::setup();
   this->last_packet_received_ = millis();
@@ -121,7 +77,7 @@ void SinclairACCNT::control(const climate::ClimateCall &call) {
 
 bool SinclairACCNT::verify_packet() const {
   const auto &packet = this->serialProcess_.data;
-  if (packet.size() < 5 || packet[3] != REPORT) return false;
+  if (packet.size() < 5 || packet[3] != protocol::CMD_IN_UNIT_REPORT) return false;
   uint8_t checksum = 0;
   for (size_t i = 2; i + 1 < packet.size(); i++) checksum += packet[i];
   return checksum == packet.back();
@@ -130,43 +86,60 @@ bool SinclairACCNT::verify_packet() const {
 void SinclairACCNT::handle_packet() {
   this->serialProcess_.data.erase(this->serialProcess_.data.begin(), this->serialProcess_.data.begin() + 4);
   this->serialProcess_.data.pop_back();
-  if (this->serialProcess_.data.size() != SHORT_LEN && this->serialProcess_.data.size() != FULL_LEN) return;
+  if (this->serialProcess_.data.size() != protocol::REPORT_SHORT_DATA_LEN &&
+      this->serialProcess_.data.size() != protocol::SET_PACKET_LEN) return;
   this->process_report();
 }
 
-bool SinclairACCNT::is_short_report() const { return this->serialProcess_.data.size() == SHORT_LEN; }
+bool SinclairACCNT::is_short_report() const {
+  return this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN;
+}
 
 void SinclairACCNT::process_report() {
   const auto &data = this->serialProcess_.data;
   const bool short_report = this->is_short_report();
-  this->reported_power_ = short_report ? (data[POWER_BYTE] & POWER_MASK) != 0
-                                       : (data[FULL_POWER_BYTE] & 0x80) != 0;
-  const uint8_t mode = short_report ? data[MODE_BYTE] : ((data[FULL_MODE_BYTE] >> 4) & 0x07);
+  this->reported_power_ = short_report ? (data[protocol::REPORT_SHORT_PWR_BYTE] & protocol::REPORT_SHORT_PWR_MASK) != 0
+                                       : (data[protocol::REPORT_PWR_BYTE] & protocol::REPORT_PWR_MASK) != 0;
+  const uint8_t mode = short_report ? data[protocol::REPORT_SHORT_MODE_BYTE]
+                                    : ((data[protocol::REPORT_MODE_BYTE] & protocol::REPORT_MODE_MASK) >>
+                                       protocol::REPORT_MODE_POS);
   switch (mode) {
     case 0: this->reported_mode_ = climate::CLIMATE_MODE_AUTO; break;
-    case MODE_AUTO: this->reported_mode_ = climate::CLIMATE_MODE_AUTO; break;
-    case MODE_COOL: this->reported_mode_ = climate::CLIMATE_MODE_COOL; break;
-    case MODE_DRY: this->reported_mode_ = climate::CLIMATE_MODE_DRY; break;
-    case MODE_FAN: this->reported_mode_ = climate::CLIMATE_MODE_FAN_ONLY; break;
+    case protocol::REPORT_SHORT_MODE_AUTO_HEAT: this->reported_mode_ = climate::CLIMATE_MODE_AUTO; break;
+    case protocol::REPORT_MODE_COOL: this->reported_mode_ = climate::CLIMATE_MODE_COOL; break;
+    case protocol::REPORT_MODE_DRY: this->reported_mode_ = climate::CLIMATE_MODE_DRY; break;
+    case protocol::REPORT_MODE_FAN: this->reported_mode_ = climate::CLIMATE_MODE_FAN_ONLY; break;
     default: return;
   }
   this->mode = this->reported_power_ ? this->reported_mode_ : climate::CLIMATE_MODE_OFF;
-  const uint8_t fan = short_report ? (data[FAN_BYTE] & 0x07) : (data[FULL_FAN_BYTE] & 0x07);
-  const bool turbo = short_report ? ((data[POWER_BYTE] & TURBO_MASK) != 0) : ((data[FULL_MODE_BYTE] & 0x01) != 0);
-  if (turbo || fan == 0 || fan == FAN_HIGH) this->fan_mode = climate::CLIMATE_FAN_HIGH;
-  else if (fan == FAN_AUTO) this->fan_mode = climate::CLIMATE_FAN_AUTO;
-  else if (fan == FAN_LOW) this->fan_mode = climate::CLIMATE_FAN_LOW;
-  else if (fan == FAN_MEDIUM) this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
+  const uint8_t fan = short_report ? (data[protocol::REPORT_SHORT_FAN_SPD1_BYTE] & protocol::REPORT_FAN_SPD1_MASK)
+                                   : (data[protocol::REPORT_FAN_SPD1_BYTE] & protocol::REPORT_FAN_SPD1_MASK);
+  const bool turbo = short_report ? ((data[protocol::REPORT_SHORT_PWR_BYTE] & protocol::REPORT_SHORT_TURBO_MASK) != 0)
+                                  : ((data[protocol::REPORT_FAN_TURBO_BYTE] & protocol::REPORT_FAN_TURBO_MASK) != 0);
+  if (turbo || fan == 0 || fan == protocol::FAN_HIGH) this->fan_mode = climate::CLIMATE_FAN_HIGH;
+  else if (fan == protocol::FAN_AUTO) this->fan_mode = climate::CLIMATE_FAN_AUTO;
+  else if (fan == protocol::FAN_LOW) this->fan_mode = climate::CLIMATE_FAN_LOW;
+  else if (fan == protocol::FAN_MEDIUM) this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
   else this->fan_mode = climate::CLIMATE_FAN_AUTO;
 
-  const uint16_t raw_target = short_report ? (data[TEMP_SET_LO] | ((data[TEMP_SET_HI] & 1) << 8))
-                                           : (data[FULL_TARGET_LO] | ((data[FULL_TARGET_HI] & 1) << 8));
-  this->reported_target_ = TEMP_C_BASE + static_cast<float>(raw_target - TEMP_RAW_BASE) / TEMP_RAW_STEP;
+  const uint16_t raw_target = short_report
+                                  ? (data[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] |
+                                     ((data[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] & protocol::REPORT_TEMP_SET_HI_MASK) << 8))
+                                  : (data[protocol::REPORT_TEMP_SET_LO_BYTE] |
+                                     ((data[protocol::REPORT_TEMP_SET_HI_BYTE] & protocol::REPORT_TEMP_SET_HI_MASK) << 8));
+  this->reported_target_ = protocol::REPORT_TEMP_SET_C_BASE +
+                           static_cast<float>(raw_target - protocol::REPORT_TEMP_SET_RAW_BASE) /
+                               protocol::REPORT_TEMP_SET_RAW_STEP;
   this->update_target_temperature(this->reported_target_);
-  const float current = short_report ? static_cast<float>(data[TEMP_CURRENT] + 4)
-                                     : (static_cast<float>(data[FULL_CURRENT_BYTE]) - 16.0f) / 2.0f;
+  const float current = short_report ? static_cast<float>(data[protocol::REPORT_SHORT_TEMP_ACT_BYTE] +
+                                                            protocol::REPORT_SHORT_TEMP_ACT_OFF)
+                                     : (static_cast<float>(data[protocol::REPORT_TEMP_ACT_BYTE]) -
+                                        protocol::REPORT_TEMP_ACT_OFF) /
+                                           protocol::REPORT_TEMP_ACT_DIV;
   this->update_current_temperature(current);
-  const uint8_t swing = short_report ? (data[SWING_BYTE] & 0x0F) : ((data[FULL_SWING_BYTE] >> 4) & 0x0F);
+  const uint8_t swing = short_report ? (data[protocol::REPORT_SHORT_VSWING_BYTE] & protocol::REPORT_SHORT_VSWING_MASK)
+                                     : ((data[protocol::REPORT_VSWING_BYTE] & protocol::REPORT_VSWING_MASK) >>
+                                        protocol::REPORT_VSWING_POS);
   ESP_LOGD("sinclair_ac", "Vertical swing report: %s frame, raw=%u", short_report ? "short" : "full", swing);
   // The Lomo's report values observed on this unit are inverse to the command
   // encoding: 0 reports active full sweep, while non-zero is not sweeping.
@@ -186,36 +159,38 @@ void SinclairACCNT::send_pending() {
 }
 
 void SinclairACCNT::send_full_packet() {
-  std::vector<uint8_t> packet(FULL_LEN, 0);
+  std::vector<uint8_t> packet(protocol::SET_PACKET_LEN, 0);
   const bool has_update = this->update_ == Update::Pending;
   const bool power = this->mode != climate::CLIMATE_MODE_OFF;
   const auto requested_mode = power ? this->mode : this->reported_mode_;
-  uint8_t mode = 1;
-  if (requested_mode == climate::CLIMATE_MODE_AUTO) mode = 0;
-  else if (requested_mode == climate::CLIMATE_MODE_DRY) mode = 2;
-  else if (requested_mode == climate::CLIMATE_MODE_FAN_ONLY) mode = 3;
-  packet[FULL_MODE_BYTE] = static_cast<uint8_t>(mode << 4);
-  packet[FULL_CONST_BYTE] = 0x02;
-  packet[FULL_CONST_BIT_BYTE] |= 0x02;
-  if (has_update) packet[FULL_AF_BYTE] = 0xAF;
-  else packet[FULL_NOCHANGE_BYTE] |= 0x08;
-  if (power) packet[FULL_POWER_BYTE] |= 0x80;
+  uint8_t mode = protocol::REPORT_MODE_COOL;
+  if (requested_mode == climate::CLIMATE_MODE_AUTO) mode = protocol::REPORT_MODE_AUTO;
+  else if (requested_mode == climate::CLIMATE_MODE_DRY) mode = protocol::REPORT_MODE_DRY;
+  else if (requested_mode == climate::CLIMATE_MODE_FAN_ONLY) mode = protocol::REPORT_MODE_FAN;
+  packet[protocol::REPORT_MODE_BYTE] = static_cast<uint8_t>(mode << protocol::REPORT_MODE_POS);
+  packet[protocol::SET_CONST_02_BYTE] = protocol::SET_CONST_02_VAL;
+  packet[protocol::SET_CONST_BIT_BYTE] |= protocol::SET_CONST_BIT_MASK;
+  if (has_update) packet[protocol::SET_AF_BYTE] = protocol::SET_AF_VAL;
+  else packet[protocol::SET_NOCHANGE_BYTE] |= protocol::SET_NOCHANGE_MASK;
+  if (power) packet[protocol::REPORT_PWR_BYTE] |= protocol::REPORT_PWR_MASK;
   const auto fan = this->fan_mode.value_or(climate::CLIMATE_FAN_AUTO);
-  if (fan == climate::CLIMATE_FAN_LOW) packet[FULL_FAN_BYTE] |= FAN_LOW;
-  else if (fan == climate::CLIMATE_FAN_MEDIUM) packet[FULL_FAN_BYTE] |= FAN_MEDIUM;
-  else if (fan == climate::CLIMATE_FAN_HIGH) packet[FULL_FAN_BYTE] |= FAN_HIGH;
-  else packet[FULL_FAN_BYTE] |= FAN_AUTO;
-  const auto raw_target = static_cast<uint16_t>(TEMP_RAW_BASE + lround((this->target_temperature - TEMP_C_BASE) * TEMP_RAW_STEP));
-  packet[FULL_TARGET_LO] = raw_target & 0xFF;
-  packet[FULL_TARGET_HI] = (raw_target >> 8) & 1;
-  packet[FULL_SWING_BYTE] = this->swing_mode == climate::CLIMATE_SWING_VERTICAL ? 0x10 : 0x40;
-  packet.insert(packet.begin(), SET);
-  packet.insert(packet.begin(), FULL_LEN + 2);
+  if (fan == climate::CLIMATE_FAN_LOW) packet[protocol::REPORT_FAN_SPD1_BYTE] |= protocol::FAN_LOW;
+  else if (fan == climate::CLIMATE_FAN_MEDIUM) packet[protocol::REPORT_FAN_SPD1_BYTE] |= protocol::FAN_MEDIUM;
+  else if (fan == climate::CLIMATE_FAN_HIGH) packet[protocol::REPORT_FAN_SPD1_BYTE] |= protocol::FAN_HIGH;
+  else packet[protocol::REPORT_FAN_SPD1_BYTE] |= protocol::FAN_AUTO;
+  const auto raw_target = static_cast<uint16_t>(protocol::REPORT_TEMP_SET_RAW_BASE +
+      lround((this->target_temperature - protocol::REPORT_TEMP_SET_C_BASE) * protocol::REPORT_TEMP_SET_RAW_STEP));
+  packet[protocol::REPORT_TEMP_SET_LO_BYTE] = raw_target & 0xFF;
+  packet[protocol::REPORT_TEMP_SET_HI_BYTE] = (raw_target >> 8) & protocol::REPORT_TEMP_SET_HI_MASK;
+  packet[protocol::REPORT_VSWING_BYTE] =
+      this->swing_mode == climate::CLIMATE_SWING_VERTICAL ? 0x10 : 0x40;
+  packet.insert(packet.begin(), protocol::CMD_OUT_PARAMS_SET);
+  packet.insert(packet.begin(), protocol::SET_PACKET_LEN + 2);
   uint8_t checksum = 0;
   for (const auto byte : packet) checksum += byte;
   packet.push_back(checksum);
-  packet.insert(packet.begin(), SYNC);
-  packet.insert(packet.begin(), SYNC);
+  packet.insert(packet.begin(), protocol::SYNC);
+  packet.insert(packet.begin(), protocol::SYNC);
   this->write_array(packet);
   this->last_packet_sent_ = millis();
   this->wait_response_ = true;
@@ -223,35 +198,38 @@ void SinclairACCNT::send_full_packet() {
 }
 
 void SinclairACCNT::send_short_packet() {
-  std::vector<uint8_t> packet(SHORT_LEN, 0);
+  std::vector<uint8_t> packet(protocol::REPORT_SHORT_DATA_LEN, 0);
   const bool power = this->mode != climate::CLIMATE_MODE_OFF;
-  uint8_t mode = MODE_COOL;
+  uint8_t mode = protocol::REPORT_SHORT_MODE_COOL;
   const auto requested_mode = power ? this->mode : this->reported_mode_;
-  if (requested_mode == climate::CLIMATE_MODE_DRY) mode = MODE_DRY;
-  else if (requested_mode == climate::CLIMATE_MODE_FAN_ONLY) mode = MODE_FAN;
-  packet[TRANSITION_BYTE] = 0x01;
-  packet[MODE_BYTE] = mode;
-  packet[FAN_BYTE] = FAN_AUTO;
+  if (requested_mode == climate::CLIMATE_MODE_DRY) mode = protocol::REPORT_SHORT_MODE_DRY;
+  else if (requested_mode == climate::CLIMATE_MODE_FAN_ONLY) mode = protocol::REPORT_SHORT_MODE_FAN;
+  packet[protocol::SET_SHORT_TRANSITION_BYTE] = protocol::SET_SHORT_TRANSITION_VAL;
+  packet[protocol::REPORT_SHORT_MODE_BYTE] = mode;
+  packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = protocol::FAN_AUTO;
   const auto fan = this->fan_mode.value_or(climate::CLIMATE_FAN_AUTO);
-  if (fan == climate::CLIMATE_FAN_LOW) packet[FAN_BYTE] = FAN_LOW;
-  else if (fan == climate::CLIMATE_FAN_MEDIUM) packet[FAN_BYTE] = FAN_MEDIUM;
-  else if (fan == climate::CLIMATE_FAN_HIGH) packet[FAN_BYTE] = FAN_HIGH;
-  packet[SWING_BYTE] = this->swing_mode == climate::CLIMATE_SWING_VERTICAL ? SWING_FULL : SWING_FIXED_MIDDLE;
-  const auto raw_target = static_cast<uint16_t>(TEMP_RAW_BASE +
-      lround((this->target_temperature - TEMP_C_BASE) * TEMP_RAW_STEP));
-  packet[TEMP_SET_LO] = raw_target & 0xFF;
-  packet[TEMP_SET_HI] = (raw_target >> 8) & 1;
-  packet[POWER_BYTE] = 0x14 | (power ? POWER_MASK : 0);
-  packet[TEMP_CURRENT] = std::isnan(this->current_temperature)
+  if (fan == climate::CLIMATE_FAN_LOW) packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = protocol::FAN_LOW;
+  else if (fan == climate::CLIMATE_FAN_MEDIUM) packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = protocol::FAN_MEDIUM;
+  else if (fan == climate::CLIMATE_FAN_HIGH) packet[protocol::REPORT_SHORT_FAN_SPD1_BYTE] = protocol::FAN_HIGH;
+  packet[protocol::REPORT_SHORT_VSWING_BYTE] = this->swing_mode == climate::CLIMATE_SWING_VERTICAL
+                                                      ? protocol::REPORT_SHORT_VSWING_AUTO
+                                                      : protocol::REPORT_SHORT_VSWING_MID;
+  const auto raw_target = static_cast<uint16_t>(protocol::REPORT_TEMP_SET_RAW_BASE +
+      lround((this->target_temperature - protocol::REPORT_TEMP_SET_C_BASE) * protocol::REPORT_TEMP_SET_RAW_STEP));
+  packet[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] = raw_target & 0xFF;
+  packet[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] = (raw_target >> 8) & protocol::REPORT_TEMP_SET_HI_MASK;
+  packet[protocol::REPORT_SHORT_PWR_BYTE] = protocol::REPORT_SHORT_PWR_BASE |
+                                             (power ? protocol::REPORT_SHORT_PWR_MASK : 0);
+  packet[protocol::REPORT_SHORT_TEMP_ACT_BYTE] = std::isnan(this->current_temperature)
       ? 0x11 : static_cast<uint8_t>(std::clamp(lround(this->current_temperature - 4), 0L, 255L));
 
-  packet.insert(packet.begin(), SET);
-  packet.insert(packet.begin(), SHORT_LEN + 2);
+  packet.insert(packet.begin(), protocol::CMD_OUT_PARAMS_SET);
+  packet.insert(packet.begin(), protocol::REPORT_SHORT_DATA_LEN + 2);
   uint8_t checksum = 0;
   for (const auto byte : packet) checksum += byte;
   packet.push_back(checksum);
-  packet.insert(packet.begin(), SYNC);
-  packet.insert(packet.begin(), SYNC);
+  packet.insert(packet.begin(), protocol::SYNC);
+  packet.insert(packet.begin(), protocol::SYNC);
   this->write_array(packet);
   this->last_packet_sent_ = millis();
   this->wait_response_ = true;
