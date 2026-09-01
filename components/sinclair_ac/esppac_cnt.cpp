@@ -107,30 +107,16 @@ void SinclairACCNT::control(const climate::ClimateCall &call)
         ESP_LOGV(TAG, "Requested swing mode change");
         this->update_ = ACUpdate::UpdateStart;
         switch (*call.get_swing_mode()) {
-            case climate::CLIMATE_SWING_BOTH:
-                this->vertical_swing_state_   =   vertical_swing_options::FULL;
-                this->horizontal_swing_state_ = horizontal_swing_options::FULL;
-                break;
             case climate::CLIMATE_SWING_OFF:
-                /* both center */
                 this->vertical_swing_state_   =   vertical_swing_options::CMID;
-                this->horizontal_swing_state_ = horizontal_swing_options::CMID;
                 break;
             case climate::CLIMATE_SWING_VERTICAL:
-                /* vertical full, horizontal center */
                 this->vertical_swing_state_   =   vertical_swing_options::FULL;
-                this->horizontal_swing_state_ = horizontal_swing_options::CMID;
-                break;
-            case climate::CLIMATE_SWING_HORIZONTAL:
-                /* horizontal full, vertical center */
-                this->vertical_swing_state_   =   vertical_swing_options::CMID;
-                this->horizontal_swing_state_ = horizontal_swing_options::FULL;
                 break;
             default:
                 ESP_LOGV(TAG, "Unsupported swing mode requested");
                 /* both center */
                 this->vertical_swing_state_   =   vertical_swing_options::CMID;
-                this->horizontal_swing_state_ = horizontal_swing_options::CMID;
                 break;
         }
     }
@@ -140,15 +126,68 @@ void SinclairACCNT::control(const climate::ClimateCall &call)
  * Send a raw packet, as is
  */
 
+void SinclairACCNT::send_short_packet()
+{
+    std::vector<uint8_t> packet(protocol::REPORT_SHORT_DATA_LEN, 0);
+    const bool power = this->mode != climate::CLIMATE_MODE_OFF;
+    climate::ClimateMode requested_mode = power ? this->mode : this->mode_internal_;
+    uint8_t mode = protocol::REPORT_SHORT_MODE_COOL;
+    if (requested_mode == climate::CLIMATE_MODE_DRY)
+        mode = protocol::REPORT_SHORT_MODE_DRY;
+    else if (requested_mode == climate::CLIMATE_MODE_FAN_ONLY)
+        mode = protocol::REPORT_SHORT_MODE_FAN;
+
+    packet[protocol::SET_SHORT_TRANSITION_BYTE] = protocol::SET_SHORT_TRANSITION_VAL;
+    packet[protocol::REPORT_SHORT_MODE_BYTE] = mode;
+    packet[protocol::REPORT_SHORT_FAN_BYTE] = 1;
+    if (this->has_custom_fan_mode())
+    {
+        const char *fan = this->get_custom_fan_mode().c_str();
+        if (strcmp(fan, fan_modes::FAN_LOW) == 0) packet[protocol::REPORT_SHORT_FAN_BYTE] = 2;
+        else if (strcmp(fan, fan_modes::FAN_MED) == 0) packet[protocol::REPORT_SHORT_FAN_BYTE] = 4;
+        else if (strcmp(fan, fan_modes::FAN_HIGH) == 0) packet[protocol::REPORT_SHORT_FAN_BYTE] = 6;
+    }
+
+    packet[protocol::REPORT_SHORT_VSWING_BYTE] =
+        this->swing_mode == climate::CLIMATE_SWING_VERTICAL ? 1 : 4;
+
+    uint16_t raw_target = protocol::REPORT_TEMP_SET_RAW_BASE;
+    if (this->target_temperature > protocol::REPORT_TEMP_SET_C_BASE)
+        raw_target += static_cast<uint16_t>(lround((this->target_temperature - protocol::REPORT_TEMP_SET_C_BASE) * protocol::REPORT_TEMP_SET_RAW_STEP));
+    packet[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] = raw_target & 0xFF;
+    packet[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] = (raw_target >> 8) & 0x01;
+    packet[protocol::REPORT_SHORT_PWR_BYTE] = protocol::REPORT_SHORT_PWR_BASE |
+                                               (power ? protocol::REPORT_SHORT_PWR_MASK : 0);
+    packet.insert(packet.begin(), protocol::CMD_OUT_PARAMS_SET);
+    packet.insert(packet.begin(), protocol::REPORT_SHORT_DATA_LEN + 2);
+    uint8_t checksum = 0;
+    for (uint8_t byte : packet) checksum += byte;
+    packet.push_back(checksum);
+    packet.insert(packet.begin(), protocol::SYNC);
+    packet.insert(packet.begin(), protocol::SYNC);
+    this->last_packet_sent_ = millis();
+    this->wait_response_ = true;
+    write_array(packet);
+    log_packet(packet, true);
+    this->update_ = ACUpdate::NoUpdate;
+}
+
 void SinclairACCNT::send_packet()
 {
     std::vector<uint8_t> packet(protocol::SET_PACKET_LEN, 0);  /* Initialize packet contents */
 
-    if (this->wait_response_ == true && (millis() - this->last_packet_sent_) < protocol::TIME_REFRESH_PERIOD_MS)
-    {
+    if ((millis() - this->last_packet_sent_) < protocol::TIME_REFRESH_PERIOD_MS)
+        {
         /* do net send packet too often or when we are waiting for report to come */
         return;
     }
+    if (this->update_ == ACUpdate::UpdateStart)
+    {
+        this->send_short_packet();
+        return;
+    }
+    if (millis() - this->last_packet_sent_ < protocol::TIME_IDLE_POLL_PERIOD_MS)
+        return;
     
     packet[protocol::SET_CONST_02_BYTE] = protocol::SET_CONST_02_VAL; /* Some always 0x02 byte... */
     packet[protocol::SET_CONST_BIT_BYTE] = protocol::SET_CONST_BIT_MASK; /* Some always true bit */
@@ -173,10 +212,6 @@ void SinclairACCNT::send_packet()
     bool power = false;
     switch (this->mode)
     {
-        case climate::CLIMATE_MODE_AUTO:
-            mode = protocol::REPORT_MODE_AUTO;
-            power = true;
-            break;
         case climate::CLIMATE_MODE_COOL:
             mode = protocol::REPORT_MODE_COOL;
             power = true;
@@ -189,18 +224,11 @@ void SinclairACCNT::send_packet()
             mode = protocol::REPORT_MODE_FAN;
             power = true;
             break;
-        case climate::CLIMATE_MODE_HEAT:
-            mode = protocol::REPORT_MODE_HEAT;
-            power = true;
-            break;
         default:
         case climate::CLIMATE_MODE_OFF:
             /* In case of MODE_OFF we will not alter the last mode setting recieved from AC, see determine_mode() */
             switch (this->mode_internal_)
             {
-                case climate::CLIMATE_MODE_AUTO:
-                    mode = protocol::REPORT_MODE_AUTO;
-                    break;
                 case climate::CLIMATE_MODE_COOL:
                     mode = protocol::REPORT_MODE_COOL;
                     break;
@@ -209,9 +237,6 @@ void SinclairACCNT::send_packet()
                     break;
                 case climate::CLIMATE_MODE_FAN_ONLY:
                     mode = protocol::REPORT_MODE_FAN;
-                    break;
-                case climate::CLIMATE_MODE_HEAT:
-                    mode = protocol::REPORT_MODE_HEAT;
                     break;
             }
             power = false;
@@ -252,31 +277,10 @@ void SinclairACCNT::send_packet()
             fanQuiet  = false;
             fanTurbo  = false;
         }
-        else if (strcmp(custom_fan_mode, fan_modes::FAN_QUIET) == 0)
-        {
-            fanSpeed1 = 1;
-            fanSpeed2 = 1;
-            fanQuiet  = true;
-            fanTurbo  = false;
-        }
-        else if (strcmp(custom_fan_mode, fan_modes::FAN_MEDL) == 0)
-        {
-            fanSpeed1 = 2;
-            fanSpeed2 = 2;
-            fanQuiet  = false;
-            fanTurbo  = false;
-        }
         else if (strcmp(custom_fan_mode, fan_modes::FAN_MED) == 0)
         {
             fanSpeed1 = 3;
             fanSpeed2 = 2;
-            fanQuiet  = false;
-            fanTurbo  = false;
-        }
-        else if (strcmp(custom_fan_mode, fan_modes::FAN_MEDH) == 0)
-        {
-            fanSpeed1 = 4;
-            fanSpeed2 = 3;
             fanQuiet  = false;
             fanTurbo  = false;
         }
@@ -286,13 +290,6 @@ void SinclairACCNT::send_packet()
             fanSpeed2 = 3;
             fanQuiet  = false;
             fanTurbo  = false;
-        }
-        else if (strcmp(custom_fan_mode, fan_modes::FAN_TURBO) == 0)
-        {
-            fanSpeed1 = 5;
-            fanSpeed2 = 3;
-            fanQuiet  = false;
-            fanTurbo  = true;
         }
         else
         {
@@ -305,14 +302,6 @@ void SinclairACCNT::send_packet()
 
     packet[protocol::REPORT_FAN_SPD1_BYTE] |= (fanSpeed1 << protocol::REPORT_FAN_SPD1_POS);
     packet[protocol::REPORT_FAN_SPD2_BYTE] |= (fanSpeed2 << protocol::REPORT_FAN_SPD2_POS);
-    if (fanTurbo)
-    {
-        packet[protocol::REPORT_FAN_TURBO_BYTE] |= protocol::REPORT_FAN_TURBO_MASK;
-    }
-    if (fanQuiet)
-    {
-        packet[protocol::REPORT_FAN_QUIET_BYTE] |= protocol::REPORT_FAN_QUIET_MASK;
-    }
 
     /* VERTICAL SWING --------------------------------------------------------------------------- */
     uint8_t mode_vertical_swing = protocol::REPORT_VSWING_OFF;
@@ -608,6 +597,7 @@ void SinclairACCNT::handle_packet()
 bool SinclairACCNT::processUnitReport()
 {
     bool hasChanged = false;
+    const bool short_report = this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN;
 
     climate::ClimateMode newMode = determine_mode();
     if (this->mode != newMode) hasChanged = true;
@@ -624,13 +614,24 @@ bool SinclairACCNT::processUnitReport()
     }
     this->set_custom_fan_mode_(newFanMode);
     
-    float newTargetTemperature = (float)(((this->serialProcess_.data[protocol::REPORT_TEMP_SET_BYTE] & protocol::REPORT_TEMP_SET_MASK) >> protocol::REPORT_TEMP_SET_POS)
-        + protocol::REPORT_TEMP_SET_OFF);
+    uint16_t rawTarget = short_report
+        ? this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_SET_LO_BYTE] |
+          (static_cast<uint16_t>(this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_SET_HI_BYTE] & 0x01) << 8)
+        : ((this->serialProcess_.data[protocol::REPORT_TEMP_SET_BYTE] & protocol::REPORT_TEMP_SET_MASK) >> protocol::REPORT_TEMP_SET_POS) + protocol::REPORT_TEMP_SET_OFF;
+    float newTargetTemperature = short_report
+        ? 16.0f + static_cast<float>(rawTarget - 0x00A0) / 10.0f
+        : static_cast<float>(rawTarget);
     if (this->target_temperature != newTargetTemperature) hasChanged = true;
     this->update_target_temperature(newTargetTemperature);
     
     /* if there is no external sensor mapped to represent current temperature we will get data from AC unit */
-    if (this->current_temperature_sensor_ == nullptr)
+    if (short_report)
+    {
+        float newCurrentTemperature = static_cast<float>(this->serialProcess_.data[protocol::REPORT_SHORT_TEMP_ACT_BYTE]) + protocol::REPORT_SHORT_TEMP_ACT_OFF;
+        if (this->current_temperature != newCurrentTemperature) hasChanged = true;
+        this->update_current_temperature(newCurrentTemperature);
+    }
+    else
     {
         float newCurrentTemperature = (float)(((this->serialProcess_.data[protocol::REPORT_TEMP_ACT_BYTE] & protocol::REPORT_TEMP_ACT_MASK) >> protocol::REPORT_TEMP_ACT_POS)
             - protocol::REPORT_TEMP_ACT_OFF) / protocol::REPORT_TEMP_ACT_DIV;
@@ -639,7 +640,7 @@ bool SinclairACCNT::processUnitReport()
     }
 
     std::string verticalSwing = determine_vertical_swing();
-    std::string horizontalSwing = determine_horizontal_swing();
+    std::string horizontalSwing = short_report ? horizontal_swing_options::CMID : determine_horizontal_swing();
 
     this->update_swing_vertical(verticalSwing);
     this->update_swing_horizontal(horizontalSwing);
@@ -659,19 +660,34 @@ bool SinclairACCNT::processUnitReport()
     if (this->swing_mode != newSwingMode) hasChanged = true;
     this->swing_mode = newSwingMode;
 
-    this->update_display(determine_display());
-    this->update_display_unit(determine_display_unit());
-
-    this->update_plasma(determine_plasma());
-    this->update_sleep(determine_sleep());
-    this->update_xfan(determine_xfan());
-    this->update_save(determine_save());
+    if (!short_report)
+    {
+        this->update_display(determine_display());
+        this->update_display_unit(determine_display_unit());
+        this->update_plasma(determine_plasma());
+        this->update_sleep(determine_sleep());
+        this->update_xfan(determine_xfan());
+        this->update_save(determine_save());
+    }
 
     return hasChanged;
 }
 
 climate::ClimateMode SinclairACCNT::determine_mode()
 {
+    if (this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN)
+    {
+        uint8_t short_mode = this->serialProcess_.data[protocol::REPORT_SHORT_MODE_BYTE];
+        this->power_internal_ = (this->serialProcess_.data[protocol::REPORT_SHORT_PWR_BYTE] & protocol::REPORT_SHORT_PWR_MASK) != 0;
+        switch (short_mode)
+        {
+            case protocol::REPORT_SHORT_MODE_COOL: this->mode_internal_ = climate::CLIMATE_MODE_COOL; break;
+            case protocol::REPORT_SHORT_MODE_DRY: this->mode_internal_ = climate::CLIMATE_MODE_DRY; break;
+            case protocol::REPORT_SHORT_MODE_FAN: this->mode_internal_ = climate::CLIMATE_MODE_FAN_ONLY; break;
+            default: ESP_LOGW(TAG, "Received unsupported Lomo climate mode"); break;
+        }
+        return this->power_internal_ ? this->mode_internal_ : climate::CLIMATE_MODE_OFF;
+    }
     uint8_t mode = (this->serialProcess_.data[protocol::REPORT_MODE_BYTE] & protocol::REPORT_MODE_MASK) >> protocol::REPORT_MODE_POS;
 
     /* as mode presented by climate component incorporates both power and mode we will store this separately for Sinclair
@@ -716,6 +732,17 @@ climate::ClimateMode SinclairACCNT::determine_mode()
 
 const char* SinclairACCNT::determine_fan_mode()
 {
+    if (this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN)
+    {
+        switch (this->serialProcess_.data[protocol::REPORT_SHORT_FAN_BYTE] & 0x07)
+        {
+            case 1: return fan_modes::FAN_AUTO;
+            case 2: return fan_modes::FAN_LOW;
+            case 4: return fan_modes::FAN_MED;
+            case 6: return fan_modes::FAN_HIGH;
+            default: return fan_modes::FAN_AUTO;
+        }
+    }
     /* fan setting has quite complex representation in the packet, brace for it */
     uint8_t fanSpeed1 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD1_BYTE]  & protocol::REPORT_FAN_SPD1_MASK) >> protocol::REPORT_FAN_SPD1_POS;
     uint8_t fanSpeed2 = (this->serialProcess_.data[protocol::REPORT_FAN_SPD2_BYTE]  & protocol::REPORT_FAN_SPD2_MASK) >> protocol::REPORT_FAN_SPD2_POS;
@@ -730,29 +757,9 @@ const char* SinclairACCNT::determine_fan_mode()
     {
         return fan_modes::FAN_LOW;
     }
-    else if (fanSpeed1 == 1 && fanSpeed2 == 1 && fanQuiet == true  && fanTurbo == false)
-    {
-        return fan_modes::FAN_QUIET;
-    }
-    else if (fanSpeed1 == 2 && fanSpeed2 == 2 && fanQuiet == false && fanTurbo == false)
-    {
-        return fan_modes::FAN_MEDL;
-    }
-    else if (fanSpeed1 == 3 && fanSpeed2 == 2 && fanQuiet == false && fanTurbo == false)
-    {
-        return fan_modes::FAN_MED;
-    }
-    else if (fanSpeed1 == 4 && fanSpeed2 == 3 && fanQuiet == false && fanTurbo == false)
-    {
-        return fan_modes::FAN_MEDH;
-    }
-    else if (fanSpeed1 == 5 && fanSpeed2 == 3 && fanQuiet == false && fanTurbo == false)
+    else if (fanSpeed1 >= 3)
     {
         return fan_modes::FAN_HIGH;
-    }
-    else if (fanSpeed1 == 5 && fanSpeed2 == 3 && fanQuiet == false && fanTurbo == true )
-    {
-        return fan_modes::FAN_TURBO;
     }
     else 
     {
@@ -763,6 +770,11 @@ const char* SinclairACCNT::determine_fan_mode()
 
 std::string SinclairACCNT::determine_vertical_swing()
 {
+    if (this->serialProcess_.data.size() == protocol::REPORT_SHORT_DATA_LEN)
+    {
+        return (this->serialProcess_.data[protocol::REPORT_SHORT_VSWING_BYTE] & 0x0F) == 1
+            ? vertical_swing_options::FULL : vertical_swing_options::OFF;
+    }
     uint8_t mode = (this->serialProcess_.data[protocol::REPORT_VSWING_BYTE]  & protocol::REPORT_VSWING_MASK) >> protocol::REPORT_VSWING_POS;
 
     switch (mode) {

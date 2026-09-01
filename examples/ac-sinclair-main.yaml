@@ -36,22 +36,6 @@ external_components:
 climate:
   - platform: sinclair_ac
     name: ${devicename}
-    horizontal_swing_select:
-      name: ${devicename} Horizontal Swing Mode
-    vertical_swing_select:
-      name: ${devicename} Vertical Swing Mode
-    display_select:
-      name: ${devicename} Display Mode
-    display_unit_select:
-      name: ${devicename} Display Unit
-    plasma_switch:
-      name: ${devicename} Plasma
-    sleep_switch:
-      name: ${devicename} Sleep
-    xfan_switch:
-      name: ${devicename} X-fan
-    save_switch:
-      name: ${devicename} Save|8 Heat
 
 wifi:
   ssid: !secret wifi_ssid
@@ -63,4 +47,3 @@ wifi:
     password: !secret wifi_ap_passwd
 
 captive_portal:
-    

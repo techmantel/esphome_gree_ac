@@ -3,7 +3,6 @@
 
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/select/select.h"
-#include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
@@ -104,7 +103,6 @@ class SinclairAC : public Component, public uart::UARTDevice, public climate::Cl
         void set_xfan_switch(switch_::Switch *plasma_switch);
         void set_save_switch(switch_::Switch *plasma_switch);
 
-        void set_current_temperature_sensor(sensor::Sensor *current_temperature_sensor);
 
         void setup() override;
         void loop() override;
@@ -121,7 +119,6 @@ class SinclairAC : public Component, public uart::UARTDevice, public climate::Cl
         switch_::Switch *xfan_switch_            = nullptr; /* Switch for X-fan */
         switch_::Switch *save_switch_            = nullptr; /* Switch for save */
 
-        sensor::Sensor *current_temperature_sensor_ = nullptr; /* If user wants to replace reported temperature by an external sensor readout */
 
         std::string vertical_swing_state_;
         std::string horizontal_swing_state_;

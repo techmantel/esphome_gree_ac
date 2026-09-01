@@ -1,0 +1,26 @@
+{
+  "name": "ESPHome Gree AC",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=esphome-pio-cache,target=/home/vscode/.platformio,type=volume",
+    "source=esphome-cache,target=/home/vscode/.esphome,type=volume"
+  ],
+  "postCreateCommand": "esphome version",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esphome.esphome-vscode",
+        "ms-python.python",
+        "ms-vscode.cpptools"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

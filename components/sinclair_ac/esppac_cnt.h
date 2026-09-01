@@ -35,6 +35,26 @@ namespace protocol {
     static const uint8_t REPORT_PWR_BYTE       = 4;
     static const uint8_t REPORT_PWR_MASK       = 0b10000000;
 
+    static const uint8_t REPORT_SHORT_DATA_LEN = 33;
+    static const uint8_t REPORT_SHORT_MODE_BYTE = 2;
+    static const uint8_t REPORT_SHORT_MODE_COOL = 1;
+    static const uint8_t REPORT_SHORT_MODE_DRY = 2;
+    static const uint8_t REPORT_SHORT_MODE_FAN = 3;
+    static const uint8_t REPORT_SHORT_FAN_BYTE = 3;
+    static const uint8_t REPORT_SHORT_VSWING_BYTE = 5;
+    static const uint8_t REPORT_SHORT_TEMP_SET_LO_BYTE = 6;
+    static const uint8_t REPORT_SHORT_TEMP_SET_HI_BYTE = 7;
+    static const uint16_t REPORT_TEMP_SET_RAW_BASE = 0x00A0;
+    static const uint8_t REPORT_TEMP_SET_C_BASE = 16;
+    static const uint8_t REPORT_TEMP_SET_RAW_STEP = 10;
+    static const uint8_t REPORT_SHORT_TEMP_ACT_BYTE = 16;
+    static const uint8_t REPORT_SHORT_TEMP_ACT_OFF = 4;
+    static const uint8_t REPORT_SHORT_PWR_BYTE = 15;
+    static const uint8_t REPORT_SHORT_PWR_MASK = 0x02;
+    static const uint8_t REPORT_SHORT_PWR_BASE = 0x14;
+    static const uint8_t SET_SHORT_TRANSITION_BYTE = 1;
+    static const uint8_t SET_SHORT_TRANSITION_VAL = 0x01;
+
     static const uint8_t REPORT_MODE_BYTE      = 4;
     static const uint8_t REPORT_MODE_MASK      = 0b01110000;
     static const uint8_t REPORT_MODE_POS       = 4;
@@ -137,7 +157,8 @@ namespace protocol {
 
     /* time constraints */
     static const unsigned long TIME_REFRESH_PERIOD_MS   =  300;
-    static const unsigned long TIME_TIMEOUT_INACTIVE_MS = 1000;
+    static const unsigned long TIME_IDLE_POLL_PERIOD_MS = 5000;
+    static const unsigned long TIME_TIMEOUT_INACTIVE_MS = 15000;
 }
 
 /* Define packets from AC that would be processed by software */
@@ -174,6 +195,7 @@ class SinclairACCNT : public SinclairAC {
         bool processUnitReport();
 
         void send_packet();
+        void send_short_packet();
 
         bool verify_packet();
         void handle_packet();
