@@ -19,9 +19,6 @@ climate::ClimateTraits SinclairAC::traits()
     traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_COOL,
                                 climate::CLIMATE_MODE_FAN_ONLY, climate::CLIMATE_MODE_DRY});
 
-    traits.set_supported_custom_fan_modes({fan_modes::FAN_AUTO, fan_modes::FAN_LOW,
-                                           fan_modes::FAN_MED, fan_modes::FAN_HIGH});
-
     traits.set_supported_swing_modes({climate::CLIMATE_SWING_OFF, climate::CLIMATE_SWING_VERTICAL});
 
     return traits;
@@ -30,6 +27,8 @@ climate::ClimateTraits SinclairAC::traits()
 void SinclairAC::setup()
 {
   // Initialize times
+    this->set_supported_custom_fan_modes({fan_modes::FAN_AUTO, fan_modes::FAN_LOW,
+                                          fan_modes::FAN_MED, fan_modes::FAN_HIGH});
     this->init_time_ = millis();
     this->last_packet_sent_ = millis();
 
