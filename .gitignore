@@ -1,1 +1,5 @@
 components/sinclair_ac/.vscode/
+secrets.yaml
+.vscode/
+.esphome/
+__pycache__/
