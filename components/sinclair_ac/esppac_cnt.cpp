@@ -344,14 +344,7 @@ bool SinclairACCNT::processUnitReport()
     if (this->target_temperature != newTargetTemperature) hasChanged = true;
     this->update_target_temperature(newTargetTemperature);
 
-    /* if there is no external sensor mapped to represent current temperature we will get data from AC unit */
-    if (this->current_temperature_sensor_ == nullptr)
-    {
-        float newCurrentTemperature = (float)(((this->serialProcess_.data[protocol::REPORT_TEMP_ACT_BYTE] & protocol::REPORT_TEMP_ACT_MASK) >> protocol::REPORT_TEMP_ACT_POS)
-            + protocol::REPORT_TEMP_ACT_OFF);
-        if (this->current_temperature != newCurrentTemperature) hasChanged = true;
-        this->update_current_temperature(newCurrentTemperature);
-    }
+    /* the unit does not report the room temperature, it comes from the external sensor (if configured) */
 
     return hasChanged;
 }

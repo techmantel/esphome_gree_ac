@@ -46,10 +46,7 @@ namespace protocol {
     static const uint8_t REPORT_TEMP_SET_HI_MASK = 0b00000001;
     static const float   REPORT_TEMP_SET_DIV     = 10.0; /* temperature divider from value in packet */
 
-    static const uint8_t REPORT_TEMP_ACT_BYTE  = 16;
-    static const uint8_t REPORT_TEMP_ACT_MASK  = 0b11111111;
-    static const uint8_t REPORT_TEMP_ACT_POS   = 0;
-    static const uint8_t REPORT_TEMP_ACT_OFF   = 4;   /* temperature offset added to value in packet */
+    /* byte 16 is always 0x11 and does not follow the room temperature, the unit does not seem to report it at all */
 
     /* bytes 4 and 5 hold horizontal and vertical swing, 0 = keep the current setting (swing is not supported yet) */
 

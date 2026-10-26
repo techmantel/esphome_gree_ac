@@ -51,7 +51,7 @@ class SinclairAC : public Component, public uart::UARTDevice, public climate::Cl
         void loop() override;
 
     protected:
-        sensor::Sensor *current_temperature_sensor_ = nullptr; /* If user wants to replace reported temperature by an external sensor readout */
+        sensor::Sensor *current_temperature_sensor_ = nullptr; /* External sensor for the room temperature, the unit does not report it */
 
         SerialProcess_t serialProcess_;
 
@@ -65,7 +65,6 @@ class SinclairAC : public Component, public uart::UARTDevice, public climate::Cl
 
         void read_data();
 
-        void update_current_temperature(float temperature);
         void update_target_temperature(float temperature);
 
         climate::ClimateAction determine_action();

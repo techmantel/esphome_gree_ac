@@ -36,6 +36,8 @@ external_components:
 climate:
   - platform: sinclair_ac
     name: ${devicename}
+    # The unit does not report the room temperature, use any temperature sensor instead
+    # current_temperature_sensor: room_temperature
 
 wifi:
   ssid: !secret wifi_ssid

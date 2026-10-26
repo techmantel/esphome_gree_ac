@@ -12,7 +12,11 @@ climate::ClimateTraits SinclairAC::traits()
 {
     auto traits = climate::ClimateTraits();
 
-    traits.set_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+    /* room temperature is only known when an external sensor is configured */
+    if (this->current_temperature_sensor_ != nullptr)
+    {
+        traits.set_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+    }
     traits.set_visual_min_temperature(MIN_TEMPERATURE);
     traits.set_visual_max_temperature(MAX_TEMPERATURE);
     traits.set_visual_temperature_step(TEMPERATURE_STEP);
@@ -104,16 +108,6 @@ void SinclairAC::read_data()
         }
 
     }
-}
-
-void SinclairAC::update_current_temperature(float temperature)
-{
-    if (temperature > TEMPERATURE_THRESHOLD) {
-        ESP_LOGW(TAG, "Received out of range inside temperature: %f", temperature);
-        return;
-    }
-
-    this->current_temperature = temperature;
 }
 
 void SinclairAC::update_target_temperature(float temperature)

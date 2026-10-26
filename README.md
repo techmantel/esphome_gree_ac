@@ -41,8 +41,23 @@ On some stock WiFi PCBs AC unit connector pins are marked on silkscreen.
 **GREE LOMO 36-A (this branch)**
 
 This branch is adapted to the Gree Lomo 36-A fan convector (cooling only, no outdoor unit) and is no longer compatible with the Sinclair units above.
-Supported: power, Cool / Dry / Fan-only modes, target temperature (16-30C), fan Auto / Low / Medium / High and room temperature.
+Supported: power, Cool / Dry / Fan-only modes, target temperature (16-30C), fan Auto / Low / Medium / High.
 Not supported (yet): swing, X-fan, iFeel, turbo, display and the other Sinclair extras.
+
+The unit does not report the room temperature (byte 16 is always `11`, whatever the real temperature is).
+To show it in Home Assistant, point `current_temperature_sensor` at any temperature sensor, e.g. one imported from Home Assistant:
+
+```yaml
+sensor:
+  - platform: homeassistant
+    id: tv_room_temperature
+    entity_id: sensor.tv_room_temperature
+
+climate:
+  - platform: sinclair_ac
+    name: TV Room
+    current_temperature_sensor: tv_room_temperature
+```
 
 The unit speaks the same 38 byte frame in both directions: `7E 7E 23 <cmd> <33 data bytes> <checksum>`, where the checksum is the sum of all bytes after the two sync bytes.
 Settings are sent as command `01`, the unit reports with command `31`. Data byte indexes (counted after `7E 7E 23 <cmd>`):
@@ -55,7 +70,7 @@ Settings are sent as command `01`, the unit reports with command `31`. Data byte
 | 4, 5 | horizontal / vertical swing, `00` keeps the current setting              |
 | 6, 7 | target temperature in tenths of a degree, 9 bits (bit 0 of byte 7 = bit 8) |
 | 15   | flags, base value `14`, bit `02` = power on                              |
-| 16   | room temperature - 4 (only read, never written)                          |
+| 16   | unknown, always `11` (not the room temperature)                          |
 
 When nothing changes the unit is polled every 5 seconds with a fixed 50 byte Sinclair "no change" frame, which it answers with a report.
 Use `level: VERBOSE` in the `logger` to see every frame.
