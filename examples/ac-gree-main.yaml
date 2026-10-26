@@ -1,0 +1,48 @@
+# DO NOT COMPILE
+# THIS IS INCLUDE ONLY FILE
+esphome:
+  name: $deviceid
+  friendly_name: ${devicename}
+
+# ESP-01 (ESP8266) replacing the stock WiFi module, for an ESP32 change the board and the uart pins
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+  baud_rate: 0 # disable LOG output on UART as UART is used for the AC unit
+  # level: VERBOSE # shows every frame sent to and received from the AC unit
+
+uart:
+  tx_pin: 1
+  rx_pin: 3
+  baud_rate: 4800
+  parity: EVEN
+
+external_components:
+  - source: github://techmantel/esphome_gree_ac@gree-lomo-claude
+    components: [sinclair_ac]
+    refresh: 0s
+
+# The unit does not report the room temperature, use any temperature sensor instead,
+# e.g. one imported from Home Assistant
+# sensor:
+#   - platform: homeassistant
+#     id: room_temperature
+#     entity_id: sensor.living_room_temperature
+
+climate:
+  - platform: sinclair_ac
+    name: ${devicename}
+    # current_temperature_sensor: room_temperature
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${devicename} Fallback Hotspot
+    password: !secret wifi_ap_passwd
+
+captive_portal:
