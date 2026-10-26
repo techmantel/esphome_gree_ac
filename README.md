@@ -1,5 +1,5 @@
 # ESPHOME component for the Gree Lomo 36-A fan convector
-This repository adds support for ESP-based WiFi modules to interface with the Gree Lomo 36-A fan convector (cooling only, no outdoor unit).
+This repository adds support for ESP-based WiFi modules to interface with the Gree Lomo 36-A (FPD-68BB4/A-K) fan convector (cooling only, no outdoor unit).
 It replaces the stock WiFi module and makes the unit controllable from Home Assistant.
 
 **USE AT YOUR OWN RISK!**
